@@ -18,7 +18,7 @@ class Backtester:
         # ============================================================
         
         # 全局参数
-        self.signal_smooth_span = 160  # 信号平滑（更快响应）
+        self.signal_smooth_span = 160  # 信号平滑跨度
         
         # 分状态参数
         self.params = {
@@ -53,29 +53,28 @@ class Backtester:
 
     def run_strategy(self):
         print("[Backtest] 执行分状态策略...")
-        
+
         n = len(self.df)
-        
+
         # === 1. 信号平滑 ===
         self.df['Pred_Smooth'] = self.df['Pred_Ret'].ewm(
             span=self.signal_smooth_span, adjust=False
         ).mean()
-        
+
         # === 2. 分状态计算阈值 ===
         pred_lagged = self.df['Pred_Smooth'].shift(1)
-        
+
         self.df['Upper_Q'] = np.nan
         self.df['Lower_Q'] = np.nan
         self.df['Trade_Weight'] = 0.3
-        
+
         if 'Market_Regime' in self.df.columns:
             for regime_id, params in self.params.items():
                 mask = (self.df['Market_Regime'] == regime_id)
-                
-                # 分状态计算阈值
+
                 upper_q = pred_lagged.rolling(480, min_periods=100).quantile(params['threshold_upper'])
                 lower_q = pred_lagged.rolling(480, min_periods=100).quantile(params['threshold_lower'])
-                
+
                 self.df.loc[mask, 'Upper_Q'] = upper_q[mask]
                 self.df.loc[mask, 'Lower_Q'] = lower_q[mask]
                 self.df.loc[mask, 'Trade_Weight'] = params['position_weight']
@@ -83,16 +82,15 @@ class Backtester:
             self.df['Upper_Q'] = pred_lagged.rolling(480, min_periods=100).quantile(0.70)
             self.df['Lower_Q'] = pred_lagged.rolling(480, min_periods=100).quantile(0.30)
             self.df['Trade_Weight'] = 1.0
-        
-        # 填充 NaN
+
         self.df['Upper_Q'] = self.df['Upper_Q'].ffill()
         self.df['Lower_Q'] = self.df['Lower_Q'].ffill()
-        
+
         # === 3. 原始信号 ===
         self.df['Raw_Signal'] = 0
         upper_break = self.df['Pred_Smooth'] > self.df['Upper_Q']
         lower_break = self.df['Pred_Smooth'] < self.df['Lower_Q']
-        
+
         self.df.loc[upper_break, 'Raw_Signal'] = 1
         self.df.loc[lower_break, 'Raw_Signal'] = -1
         

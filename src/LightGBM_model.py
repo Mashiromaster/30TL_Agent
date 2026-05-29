@@ -6,27 +6,28 @@ import numpy as np
 import os
 import pickle
 from sklearn.preprocessing import RobustScaler
+import lightgbm as lgb
 from lightgbm import LGBMRegressor
 from sklearn.metrics import mean_squared_error
 
 def prepare_training_data(df, prediction_horizon=30):
     """准备训练数据"""
     df = df.copy()
-    
+
     df['next_close'] = df['close'].shift(-1)
     df['future_close'] = df['close'].shift(-(prediction_horizon + 1))
     df['Target_Ret'] = (df['future_close'] / df['next_close'] - 1) * 100
-    
-        # 精选核心因子（基于重要性分析）
+
+    # 精选核心因子（基于重要性分析）
     core_features = [
         # === 动量因子 ===
         'Mid_Momentum_1M', 'Mid_Momentum_2M',
         'Short_Momentum_1D', 'Short_Momentum_3D', 'Short_Momentum_5D',
         'TSMOM', 'Momentum_Alignment',
-        
+
         # === 波动率因子 ===
         'RV_30', 'RV_120', 'Vol_Surge', 'ATR_14', 'Vol_Regime',
-        
+
         # === 微观结构因子 ===
         'Spread_Mean', 'Spread_Ratio',
         'Cum_Imbalance_15', 'Cum_Imbalance_30', 'Imbalance_ZScore',
@@ -36,20 +37,20 @@ def prepare_training_data(df, prediction_horizon=30):
         'Cum_Net_Open_15', 'Cum_Net_Open_30',
         'Close_Pressure', 'Open_Price_Push',
         'Trade_Intensity', 'Vol_Disconnect',
-        
+
         # === 量价因子 ===
         'OI_Volume_Flow', 'Smart_Money', 'Large_Trade_Direction',
-        
+
         # === 技术因子 ===
         'MACD_Hist', 'RSI', 'BB_Position',
-        
+
         # === 市场状态 ===
         'Market_Regime', 'Is_High_Vol',
-        
+
         # === 基差因子===
-        'Basis_ZScore_20', 'Basis_Trend','Basis_ZScore_10',
+        'Basis_ZScore_20', 'Basis_Trend', 'Basis_ZScore_10',
     ]
-    
+
     # Auto-detect macro / funding factor columns from DataFrame
     macro_patterns = ['SHIBOR_', 'Repo_', 'YC_', 'PMI_', 'CPI_', 'M2_',
                       'SocialFin', 'Injection_', 'OMO_', 'Stock_Bond',
@@ -60,67 +61,73 @@ def prepare_training_data(df, prediction_horizon=30):
         print(f"[Model] 自动检测到 {len(macro_detected)} 个宏观因子")
 
     available_features = [f for f in core_features if f in df.columns]
-    
+
     micro_features = [f for f in available_features if any(
-        keyword in f for keyword in ['Spread', 'Imbalance', 'VPIN', 'HF_', 'Signed', 'Trade_', 'Open_', 'Close_', 'Cum_', 'Vol_Disconnect']
+        keyword in f for keyword in ['Spread', 'Imbalance', 'VPIN', 'HF_', 'Signed',
+                                     'Trade_', 'Open_', 'Close_', 'Cum_', 'Vol_Disconnect']
     )]
-    
+
     print(f"[Model] 可用特征数: {len(available_features)}")
     print(f"[Model] 其中微观结构特征: {len(micro_features)}")
 
     macro_model_features = [f for f in available_features if any(p in f for p in macro_patterns)]
     if macro_model_features:
-        print(f"[Model] 其中宏观特征: {len(macro_model_features)}")    
+        print(f"[Model] 其中宏观特征: {len(macro_model_features)}")
+
     df_model = df.dropna(subset=['Target_Ret']).copy()
-    
     for col in available_features:
         if col in df_model.columns:
             df_model[col] = df_model[col].fillna(0)
-    
+
     return df_model, available_features
 
 
 def train_model(X_train, y_train, X_val, y_val, model_type='base'):
-    """训练模型 - 更强正则化"""
+    """训练模型 - 强正则化 + MAE + 适度容量"""
     if model_type == 'highvol':
         model = LGBMRegressor(
-            n_estimators=80,
+            n_estimators=200,
             learning_rate=0.005,
-            num_leaves=6,
+            num_leaves=8,
             max_depth=4,
-            lambda_l1=15.0,
-            lambda_l2=15.0,
-            feature_fraction=0.3,
+            lambda_l1=10.0,
+            lambda_l2=10.0,
+            feature_fraction=0.4,
             bagging_fraction=0.5,
             bagging_freq=5,
-            min_child_samples=300,
+            min_child_samples=250,
+            min_split_gain=0.01,
+            objective='regression_l1',
             random_state=42,
             n_jobs=-1,
             verbose=-1
         )
     else:
         model = LGBMRegressor(
-            n_estimators=60,
-            learning_rate=0.003,
-            num_leaves=4,
-            max_depth=2,
-            lambda_l1=20.0,
-            lambda_l2=20.0,
-            feature_fraction=0.25,
+            n_estimators=200,
+            learning_rate=0.005,
+            num_leaves=8,
+            max_depth=3,
+            lambda_l1=15.0,
+            lambda_l2=15.0,
+            feature_fraction=0.3,
             bagging_fraction=0.4,
             bagging_freq=5,
-            min_child_samples=500,
+            min_child_samples=350,
+            min_split_gain=0.01,
+            objective='regression_l1',
             random_state=42,
             n_jobs=-1,
             verbose=-1
         )
-    
+
     model.fit(
         X_train, y_train,
         eval_set=[(X_val, y_val)],
-        callbacks=[]
+        callbacks=[lgb.early_stopping(stopping_rounds=100, verbose=False),
+                   lgb.log_evaluation(period=0)]
     )
-    
+
     return model
 
 
@@ -139,7 +146,7 @@ def run_process(base_dir):
         return False
     
     df = pd.read_pickle(FACTOR_FILE)
-    df_model, features = prepare_training_data(df)
+    df_model, features = prepare_training_data(df, prediction_horizon=30)
     
     print(f"[Model] 总样本数: {len(df_model)}, 特征数: {len(features)}")
     
