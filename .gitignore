@@ -27,6 +27,7 @@ data/tick/*.pkl
 data/macro/*.pkl
 data/*.pkl
 data/*.txt
+data/rag/
 
 # Model outputs (generated files)
 outputs/*.pkl

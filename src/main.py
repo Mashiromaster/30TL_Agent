@@ -45,7 +45,7 @@ def run_train(base_dir, tick_subdir):
 
     # Step 2: 模型训练
     print("\n[2/3] 模型训练")
-    if not LightGBM_model.run_process(base_dir):
+    if not LightGBM_model.run_process(base_dir, max_lookback_months=9, time_decay_half_life=60):
         print("[STOP] 模型训练失败")
         sys.exit(1)
 

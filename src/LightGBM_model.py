@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# LightGBM_model.py (V3.0 - 优化版)
+# LightGBM_model.py (V3.2 - 9月窗口 + 60d衰减)
 
 import pandas as pd
 import numpy as np
@@ -82,8 +82,8 @@ def prepare_training_data(df, prediction_horizon=30):
     return df_model, available_features
 
 
-def train_model(X_train, y_train, X_val, y_val, model_type='base'):
-    """训练模型 - 强正则化 + MAE + 适度容量"""
+def train_model(X_train, y_train, X_val, y_val, model_type='base', sample_weight=None):
+    """训练模型 - 强正则化 + MAE + 适度容量 + 时间衰减权重"""
     if model_type == 'highvol':
         model = LGBMRegressor(
             n_estimators=200,
@@ -123,6 +123,7 @@ def train_model(X_train, y_train, X_val, y_val, model_type='base'):
 
     model.fit(
         X_train, y_train,
+        sample_weight=sample_weight,
         eval_set=[(X_val, y_val)],
         callbacks=[lgb.early_stopping(stopping_rounds=100, verbose=False),
                    lgb.log_evaluation(period=0)]
@@ -131,33 +132,51 @@ def train_model(X_train, y_train, X_val, y_val, model_type='base'):
     return model
 
 
-def run_process(base_dir):
+def run_process(base_dir, max_lookback_months=9, time_decay_half_life=60):
     print("\n" + "="*50)
     print("STEP 3: 模型训练")
     print("="*50)
-    
+
     FACTOR_FILE = os.path.join(base_dir, "outputs/df_factors.pkl")
     PRED_FILE = os.path.join(base_dir, "outputs/df_predictions.pkl")
     MODEL_FILE = os.path.join(base_dir, "models/trained_model.pkl")
     IMPORTANCE_FILE = os.path.join(base_dir, "outputs/feature_importance.csv")
-    
+
     if not os.path.exists(FACTOR_FILE):
         print(f"[Model ERROR] 找不到因子文件: {FACTOR_FILE}")
         return False
-    
+
     df = pd.read_pickle(FACTOR_FILE)
     df_model, features = prepare_training_data(df, prediction_horizon=30)
-    
+
     print(f"[Model] 总样本数: {len(df_model)}, 特征数: {len(features)}")
-    
+
     n = len(df_model)
     train_end = int(n * 0.7)
     val_end = int(n * 0.85)
-    
+
+    # ---- 时间窗口 + 衰减权重 ----
     train_df = df_model.iloc[:train_end].copy()
     val_df = df_model.iloc[train_end:val_end].copy()
     test_df = df_model.iloc[val_end:].copy()
-    
+
+    # 按日期截断训练集
+    if max_lookback_months:
+        test_start = test_df['date'].min()
+        cutoff = test_start - pd.Timedelta(days=max_lookback_months * 30)
+        train_df = train_df[train_df['date'] >= cutoff].copy()
+        print(f"[Model] 训练窗口: {max_lookback_months}个月 "
+              f"({train_df['date'].min().date()} ~ {train_df['date'].max().date()})")
+
+    # 计算时间衰减权重
+    sample_weight_train = None
+    if time_decay_half_life and len(train_df) > 0:
+        newest = train_df['date'].max()
+        age_days = (newest - train_df['date']).dt.total_seconds() / 86400
+        sample_weight_train = np.exp(-np.log(2) * age_days / time_decay_half_life)
+        print(f"[Model] 时间衰减权重: 半衰{time_decay_half_life}天 "
+              f"(权重范围 [{sample_weight_train.min():.3f}, {sample_weight_train.max():.3f}])")
+
     print(f"[Model] 训练集: {len(train_df)} ({len(train_df)/n:.1%})")
     print(f"[Model] 验证集: {len(val_df)} ({len(val_df)/n:.1%})")
     print(f"[Model] 测试集: {len(test_df)} ({len(test_df)/n:.1%})")
@@ -187,7 +206,8 @@ def run_process(base_dir):
         X_val_active = X_val[active_mask_val] if active_mask_val.sum() > 0 else X_val[:100]
         y_val_active = y_val[active_mask_val] if active_mask_val.sum() > 0 else y_val[:100]
         
-        model_active = train_model(X_train_active, y_train_active, X_val_active, y_val_active, 'highvol')
+        sw_active = sample_weight_train[active_mask_train] if sample_weight_train is not None else None
+        model_active = train_model(X_train_active, y_train_active, X_val_active, y_val_active, 'highvol', sw_active)
         
         train_pred_active = model_active.predict(X_train_active)
         train_ic_active = np.corrcoef(y_train_active, train_pred_active)[0, 1]
@@ -195,7 +215,7 @@ def run_process(base_dir):
     
     # === 训练基础模型 ===
     print("\n[Model] 训练基础模型...")
-    model_base = train_model(X_train, y_train, X_val, y_val, 'base')
+    model_base = train_model(X_train, y_train, X_val, y_val, 'base', sample_weight_train)
     
     y_val_pred = model_base.predict(X_val)
     val_ic = np.corrcoef(y_val, y_val_pred)[0, 1]

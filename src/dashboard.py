@@ -14,6 +14,7 @@ import sys
 sys.path.insert(0, os.path.dirname(__file__))
 from strategy_agent import StrategyContext
 from llm_intelligence import LLMAnalyzer
+from rag_tool import RAGAnalyzer
 from inference import SignalGenerator
 
 st.set_page_config(
@@ -37,6 +38,11 @@ def load_signal_generator(base_dir):
     if not os.path.exists(model_path):
         return None
     return SignalGenerator(model_path)
+
+
+@st.cache_resource
+def load_rag_analyzer(base_dir):
+    return RAGAnalyzer(base_dir)
 
 
 def get_recent_predictions(base_dir, df_factors, days=7):
@@ -102,6 +108,7 @@ def main():
         "💰 回测表现",
         "🌍 宏观环境",
         "🤖 AI情报分析",
+        "📚 研究RAG",
     ])
 
     with tabs[0]:
@@ -116,6 +123,8 @@ def main():
         render_macro_tab(ctx)
     with tabs[5]:
         render_intelligence_tab(ctx)
+    with tabs[6]:
+        render_rag_tab(ctx)
 
 
 # ================================================================
@@ -852,6 +861,129 @@ def render_intelligence_tab(ctx):
             with st.expander("错误详情"):
                 st.code(traceback.format_exc())
             st.info("请检查网络连接和 API Key 配置后重试")
+
+
+# ================================================================
+# Tab 7: 研究 RAG — 研报知识库检索问答
+# ================================================================
+def render_rag_tab(ctx):
+    st.subheader("研究知识库检索 (RAG)")
+    st.caption("检索央行货政报告、中金所月报、券商研报、债券新闻 → AI 生成答案")
+
+    rags = load_rag_analyzer(BASE_DIR)
+
+    # ---- Status bar ----
+    stats = rags.vector_store.get_stats()
+    has_key = bool(rags.api_key)
+
+    col_s1, col_s2, col_s3 = st.columns(3)
+    with col_s1:
+        st.metric("索引文档块", stats['total_chunks'])
+    with col_s2:
+        st.metric("LLM 模式", "DeepSeek V4" if has_key else "离线检索")
+    with col_s3:
+        st.metric("Embedding", rags.vector_store.embedding_model_name.split('/')[-1])
+
+    st.divider()
+
+    # ---- Build index section ----
+    with st.expander("索引管理", expanded=(stats['total_chunks'] == 0)):
+        st.markdown("**数据源**: 央行货政报告 (季度) · 中金所月报 · 新浪债券研报 · 本地债券新闻")
+
+        col_b1, col_b2 = st.columns([1, 3])
+        with col_b1:
+            do_rebuild = st.button("重建索引", type="secondary",
+                                   help="重新爬取所有研究报告并重建向量索引")
+        with col_b2:
+            if do_rebuild:
+                with st.spinner("正在爬取研究报告并构建索引... 约需 1-2 分钟"):
+                    new_stats = rags.build_index(force_refresh=True)
+                st.success(f"索引构建完成: {new_stats['total_chunks']} 个文本块")
+                st.rerun()
+
+        # Show available filter options
+        st.caption("文档过滤选项 (问题框下方可选)")
+
+    st.divider()
+
+    # ---- Query interface ----
+    st.markdown("### 提出问题")
+
+    # Preset questions
+    preset_questions = [
+        "当前货币政策立场和未来走向如何？降准降息空间还有多大？",
+        "国债期货市场近期运行情况如何？多头还是空头占优？",
+        "当前债券市场面临的主要风险是什么？",
+        "中美利差处于什么水平，对国内债市有什么影响？",
+        "央行对长端利率的态度如何？",
+    ]
+
+    # Use separate keys: rag_current_q = authoritative value, rag_q_input = widget binding
+    if 'rag_current_q' not in st.session_state:
+        st.session_state.rag_current_q = ''
+
+    def _sync_rag_q():
+        st.session_state.rag_current_q = st.session_state.rag_q_input
+
+    # Input area
+    col_q1, col_q2 = st.columns([3, 1])
+    with col_q1:
+        st.text_input(
+            "输入你的研究问题",
+            value=st.session_state.rag_current_q,
+            placeholder="例如: 当前货币政策立场如何？降息空间还有多大？",
+            key="rag_q_input",
+            on_change=_sync_rag_q,
+        )
+    with col_q2:
+        top_k = st.selectbox("检索数量", [3, 5, 8, 10], index=1)
+
+    # Preset question chips
+    st.caption("快速提问:")
+    q_cols = st.columns(len(preset_questions))
+    for i, q in enumerate(preset_questions):
+        with q_cols[i]:
+            if st.button(q[:20] + "...", key=f"preset_{i}", help=q, use_container_width=True):
+                st.session_state.rag_current_q = q
+                st.rerun()
+
+    question = st.session_state.rag_current_q
+
+    # Filter by document type
+    filter_options = {
+        "全部": None,
+        "货币政策报告": 'monetary_policy_report',
+        "中金所月报": 'cffex_monthly',
+        "券商研报": 'research_report',
+        "债券新闻": 'news',
+    }
+    filter_choice = st.selectbox("文档类型过滤", list(filter_options.keys()), index=0)
+
+    st.divider()
+
+    if question:
+        with st.spinner("正在检索研究报告并生成回答..."):
+            filter_dict = {'doc_type': filter_options[filter_choice]} if filter_options[filter_choice] else None
+            result = rags.query(question, top_k=top_k, filter_dict=filter_dict)
+
+        # Answer display
+        st.markdown("### 回答")
+        st.markdown(result['answer'])
+
+        # Sources
+        st.divider()
+        st.markdown("**参考来源**")
+        if result['sources']:
+            for i, src in enumerate(result['sources']):
+                with st.expander(f"{src['source']} — {src['title'][:60]}"):
+                    st.markdown(f"- **类型**: {src['doc_type']}")
+                    st.markdown(f"- **日期**: {src['date']}")
+        else:
+            st.caption("(无参考来源)")
+
+        # Show raw context in expander (debug)
+        with st.expander("查看检索上下文"):
+            st.text(result.get('context', '(无上下文)')[:3000])
 
 
 if __name__ == '__main__':
