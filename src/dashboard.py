@@ -14,6 +14,7 @@ import sys
 sys.path.insert(0, os.path.dirname(__file__))
 from strategy_agent import StrategyContext
 from llm_intelligence import LLMAnalyzer
+from inference import SignalGenerator
 
 st.set_page_config(
     page_title="TL策略 Dashboard",
@@ -28,6 +29,32 @@ BASE_DIR = r"D:\桌面\F_Agent"
 @st.cache_data(ttl=300, show_spinner="加载数据中...")
 def load_data(base_dir):
     return StrategyContext(base_dir)
+
+
+@st.cache_resource
+def load_signal_generator(base_dir):
+    model_path = os.path.join(base_dir, "models", "trained_model.pkl")
+    if not os.path.exists(model_path):
+        return None
+    return SignalGenerator(model_path)
+
+
+def get_recent_predictions(base_dir, df_factors, days=7):
+    model = load_signal_generator(base_dir)
+    if model is None:
+        return None
+    if df_factors is None or len(df_factors) == 0:
+        return None
+    df = df_factors.copy()
+    df['date'] = pd.to_datetime(df['date'])
+    cutoff = df['date'].max() - pd.Timedelta(days=days)
+    recent = df[df['date'] >= cutoff].tail(2000).copy()
+    if len(recent) < 10:
+        return None
+    result = model.predict(recent)
+    result['date'] = recent['date'].values
+    result['close'] = recent['close'].values if 'close' in recent.columns else np.nan
+    return result
 
 
 def main():
@@ -204,30 +231,43 @@ def render_signal_tab(ctx):
         fig.update_layout(height=280, margin=dict(l=30, r=30, t=50, b=20))
         st.plotly_chart(fig, use_container_width=True)
 
-    # Recent prediction history
+    # Recent prediction history (last week, model inference on recent data)
     st.divider()
-    st.markdown("**近期预测走势 (测试集)**")
-    df_pred = ctx.df_pred
-    if df_pred is not None and len(df_pred) > 0 and 'Pred_Ret' in df_pred.columns:
-        df_plot = df_pred.tail(500).copy()
-        df_plot['date'] = pd.to_datetime(df_plot['date'])
+    st.markdown("**近期预测走势 (近一周)**")
+    df_factors = ctx.df_factors
+    with st.spinner("正在运行模型推理..."):
+        df_plot = get_recent_predictions(BASE_DIR, df_factors, days=7)
 
-        fig = go.Figure()
+    if df_plot is not None and len(df_plot) > 0:
+        fig = make_subplots(specs=[[{"secondary_y": True}]])
+
         fig.add_trace(go.Scatter(
             x=df_plot['date'], y=df_plot['Pred_Ret'],
             mode='lines', name='Pred_Ret',
             line=dict(color='#1E88E5', width=1.5),
-        ))
+        ), secondary_y=False)
         fig.add_trace(go.Scatter(
             x=df_plot['date'],
-            y=df_plot['Pred_Ret'].ewm(span=160, adjust=False).mean(),
+            y=df_plot['Pred_Ret'].ewm(span=min(160, len(df_plot)//3), adjust=False).mean(),
             mode='lines', name='Pred_Smooth',
             line=dict(color='#FF9800', width=2),
-        ))
-        fig.add_hline(y=0, line_dash="dot", line_color="gray", opacity=0.5)
+        ), secondary_y=False)
+
+        if 'close' in df_plot.columns:
+            fig.add_trace(go.Scatter(
+                x=df_plot['date'], y=df_plot['close'],
+                mode='lines', name='Close',
+                line=dict(color='#90A4AE', width=0.8),
+                opacity=0.5,
+            ), secondary_y=True)
+
+        fig.add_hline(y=0, line_dash="dot", line_color="gray", opacity=0.5, secondary_y=False)
+        fig.update_yaxes(title_text="Predicted Return (%)", secondary_y=False, gridcolor='#333')
+        fig.update_yaxes(title_text="Price", secondary_y=True, gridcolor='#333')
         fig.update_layout(
-            height=300, margin=dict(l=10, r=10, t=10, b=10),
-            hovermode='x', legend=dict(orientation='h', yanchor='top', y=-0.1),
+            height=350, margin=dict(l=10, r=10, t=10, b=10),
+            hovermode='x', legend=dict(orientation='h', yanchor='top', y=-0.2),
+            template='plotly_dark',
         )
         fig.update_xaxes(rangebreaks=[
             dict(bounds=["sat", "mon"]),
@@ -235,8 +275,10 @@ def render_signal_tab(ctx):
             dict(bounds=[11.5, 13], pattern="hour"),
         ])
         st.plotly_chart(fig, use_container_width=True)
+    elif df_factors is not None and len(df_factors) > 0:
+        st.info("模型文件未找到，无法生成近期预测。请先运行训练模式生成模型。")
     else:
-        st.info("无预测历史数据")
+        st.info("无因子数据")
 
 
 # ================================================================
