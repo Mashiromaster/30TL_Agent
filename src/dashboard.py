@@ -10,12 +10,14 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 import os
 import sys
+import json
 
 sys.path.insert(0, os.path.dirname(__file__))
 from strategy_agent import StrategyContext
 from llm_intelligence import LLMAnalyzer
 from rag_tool import RAGAnalyzer
 from inference import SignalGenerator
+from memory import TradingMemory
 
 st.set_page_config(
     page_title="TL策略 Dashboard",
@@ -109,6 +111,7 @@ def main():
         "🌍 宏观环境",
         "🤖 AI情报分析",
         "📚 研究RAG",
+        "🧠 交易记忆",
     ])
 
     with tabs[0]:
@@ -125,6 +128,8 @@ def main():
         render_intelligence_tab(ctx)
     with tabs[6]:
         render_rag_tab(ctx)
+    with tabs[7]:
+        render_memory_tab(ctx)
 
 
 # ================================================================
@@ -293,6 +298,21 @@ def render_signal_tab(ctx):
 # ================================================================
 # Tab 2: 市场监控
 # ================================================================
+def _resample_ohlc(df, freq='5min'):
+    """Resample 1-min data to coarser OHLC bars. Drops non-trading periods (NaN OHLC)."""
+    df = df.set_index('date')
+    ohlc = df['close'].resample(freq).ohlc()
+    if hasattr(ohlc.columns, 'levels'):
+        ohlc.columns = ohlc.columns.droplevel(0)
+    vol = df['volume'].resample(freq).sum()
+    result = ohlc.join(vol.rename('volume'))
+    for col in ['Market_Regime']:
+        if col in df.columns:
+            result[col] = df[col].resample(freq).last()
+    result = result.dropna(subset=['open', 'high', 'low', 'close']).reset_index()
+    return result
+
+
 def render_market_tab(ctx):
     df = ctx.df_factors
     if df is None or len(df) == 0:
@@ -301,93 +321,110 @@ def render_market_tab(ctx):
 
     st.subheader("主力合约行情")
 
-    # Date range selector
     df['date'] = pd.to_datetime(df['date'])
     date_min = df['date'].min().date()
     date_max = df['date'].max().date()
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     with col1:
         lookback = st.selectbox(
             "回看周期",
-            ["最近1周", "最近1月", "最近3月", "最近半年", "全部"],
+            ["最近1周", "最近1月", "最近2月", "最近3月", "最近半年", "全部"],
             index=2
         )
     with col2:
+        resolution = st.selectbox(
+            "K线分辨率",
+            ["1天", "1小时", "30分钟", "15分钟", "5分钟", "1分钟"],
+            index=0
+        )
+    with col3:
         ticker_filter = st.selectbox(
             "合约筛选",
             ["全部"] + sorted(df['ticker'].dropna().unique().tolist())
         )
 
-    days_map = {"最近1周": 7, "最近1月": 30, "最近3月": 90, "最近半年": 180, "全部": 9999}
+    resample_map = {"1天": "1D", "1小时": "1h", "30分钟": "30min", "15分钟": "15min", "5分钟": "5min", "1分钟": None}
+    days_map = {"最近1周": 7, "最近1月": 30, "最近2月": 60, "最近3月": 90, "最近半年": 180, "全部": 9999}
     cutoff = pd.Timestamp(date_max) - pd.Timedelta(days=days_map[lookback])
 
     df_plot = df[df['date'] >= cutoff].copy()
     if ticker_filter != "全部":
         df_plot = df_plot[df_plot['ticker'] == ticker_filter]
 
-    # Price chart with regime background
-    fig = make_subplots(
-        rows=3, cols=1, shared_xaxes=True,
-        row_heights=[0.5, 0.25, 0.25],
-        vertical_spacing=0.03,
-    )
+    # Resample if needed
+    freq = resample_map[resolution]
+    if freq:
+        df_plot = _resample_ohlc(df_plot, freq)
 
-    # Candlestick
-    fig.add_trace(go.Candlestick(
-        x=df_plot['date'], open=df_plot['open'], high=df_plot['high'],
-        low=df_plot['low'], close=df_plot['close'],
-        name='OHLC',
-    ), row=1, col=1)
+    # Build adaptive rangebreaks based on resolution
+    if freq == '1D':
+        rangebreaks = [dict(bounds=["sat", "mon"])]
+        gap_threshold = pd.Timedelta(days=2)
+    else:
+        rangebreaks = [
+            dict(bounds=["sat", "mon"]),
+            dict(bounds=[15.25, 9.5], pattern="hour"),
+            dict(bounds=[11.5, 13], pattern="hour"),
+        ]
+        gap_threshold = pd.Timedelta(hours=4)
 
-    # Regime shading
-    if 'Market_Regime' in df_plot.columns:
-        colors = {0: 'rgba(76,175,80,0.05)', 1: 'rgba(255,152,0,0.1)', 2: 'rgba(156,39,176,0.1)'}
-        for rid, rcolor in colors.items():
-            mask = df_plot['Market_Regime'] == rid
-            if mask.any():
-                blocks = _find_continuous_blocks(df_plot, mask)
-                for start, end in blocks:
-                    fig.add_vrect(
-                        x0=df_plot['date'].iloc[start], x1=df_plot['date'].iloc[end],
-                        fillcolor=rcolor, layer="below", line_width=0, row=1, col=1,
-                    )
+    # Auto-detect large gaps (holidays) and hide them
+    dates = df_plot['date'].sort_values().values
+    gaps = np.diff(dates)
+    gap_mask = gaps > gap_threshold
+    gap_starts = dates[:-1][gap_mask]
+    gap_ends = dates[1:][gap_mask]
+    for s, e in zip(gap_starts, gap_ends):
+        rangebreaks.append(dict(
+            bounds=[s + pd.Timedelta(minutes=1), e - pd.Timedelta(minutes=1)]
+        ))
 
-    # Volume
-    vol_colors = ['#00C853' if c >= o else '#FF1744'
-                  for c, o in zip(df_plot['close'], df_plot['open'])]
-    fig.add_trace(go.Bar(
-        x=df_plot['date'], y=df_plot['volume'], name='成交量',
-        marker_color=vol_colors, opacity=0.6,
-    ), row=2, col=1)
+    with st.spinner("渲染图表中..."):
+        fig = make_subplots(
+            rows=2, cols=1, shared_xaxes=True,
+            row_heights=[0.65, 0.35],
+            vertical_spacing=0.03,
+        )
 
-    # RV_30 (realized volatility)
-    if 'RV_30' in df_plot.columns:
-        fig.add_trace(go.Scatter(
-            x=df_plot['date'], y=df_plot['RV_30'].clip(upper=30),
-            mode='lines', name='RV_30 (波动率)',
-            line=dict(color='#FF9800', width=1.5),
-        ), row=3, col=1)
+        # Candlestick
+        fig.add_trace(go.Candlestick(
+            x=df_plot['date'], open=df_plot['open'], high=df_plot['high'],
+            low=df_plot['low'], close=df_plot['close'],
+            name='OHLC',
+        ), row=1, col=1)
 
-    # 交易时段 rangebreaks (隐藏非交易时间和周末)
-    TRADING_RANGEBREAKS = [
-        dict(bounds=["sat", "mon"]),               # 隐藏周末
-        dict(bounds=[15.25, 9.5], pattern="hour"), # 隐藏 15:15-09:30
-        dict(bounds=[11.5, 13], pattern="hour"),   # 隐藏午休 11:30-13:00
-    ]
+        # Regime shading
+        if 'Market_Regime' in df_plot.columns:
+            colors = {0: 'rgba(76,175,80,0.05)', 1: 'rgba(255,152,0,0.1)', 2: 'rgba(156,39,176,0.1)'}
+            for rid, rcolor in colors.items():
+                mask = df_plot['Market_Regime'] == rid
+                if mask.any():
+                    blocks = _find_continuous_blocks(df_plot, mask)
+                    for start, end in blocks:
+                        fig.add_vrect(
+                            x0=df_plot['date'].iloc[start], x1=df_plot['date'].iloc[end],
+                            fillcolor=rcolor, layer="below", line_width=0, row=1, col=1,
+                        )
+
+        # Volume
+        vol_colors = ['#00C853' if c >= o else '#FF1744'
+                      for c, o in zip(df_plot['close'], df_plot['open'])]
+        fig.add_trace(go.Bar(
+            x=df_plot['date'], y=df_plot['volume'], name='成交量',
+            marker_color=vol_colors, opacity=0.6,
+        ), row=2, col=1)
 
     fig.update_layout(
-        height=600, margin=dict(l=10, r=10, t=10, b=10),
+        height=500, margin=dict(l=10, r=10, t=10, b=10),
         hovermode='x unified',
         xaxis_rangeslider_visible=False,
         legend=dict(orientation='h', yanchor='top', y=-0.05),
     )
-    fig.update_xaxes(rangebreaks=TRADING_RANGEBREAKS, row=1, col=1)
-    fig.update_xaxes(rangebreaks=TRADING_RANGEBREAKS, row=2, col=1)
-    fig.update_xaxes(rangebreaks=TRADING_RANGEBREAKS, row=3, col=1)
+    fig.update_xaxes(rangebreaks=rangebreaks, row=1, col=1)
+    fig.update_xaxes(rangebreaks=rangebreaks, row=2, col=1)
     fig.update_yaxes(title_text="价格", row=1, col=1)
     fig.update_yaxes(title_text="成交量", row=2, col=1)
-    fig.update_yaxes(title_text="RV_30", row=3, col=1)
 
     st.plotly_chart(fig, use_container_width=True)
 
@@ -984,6 +1021,136 @@ def render_rag_tab(ctx):
         # Show raw context in expander (debug)
         with st.expander("查看检索上下文"):
             st.text(result.get('context', '(无上下文)')[:3000])
+
+
+# ================================================================
+# Tab 8: 交易记忆
+# ================================================================
+def render_memory_tab(ctx):
+    st.subheader("交易记忆系统")
+    st.caption("记录每日交易决策、预测 vs 实际、归因反思")
+
+    mem = TradingMemory(BASE_DIR)
+    records = mem._load_all()
+
+    if not records:
+        st.warning("记忆系统尚未初始化，点击下方按钮从历史数据回填。")
+        if st.button("从历史数据初始化记忆", use_container_width=True):
+            with st.spinner("从 df_predictions.pkl 重建记忆记录..."):
+                n = mem.backfill_from_predictions()
+                st.success(f"已初始化 {n} 条历史记录")
+                st.rerun()
+        return
+
+    stats = mem.reflection_stats()
+    if 'error' in stats:
+        st.warning(f"统计不可用: {stats['error']}")
+        return
+
+    col1, col2, col3, col4, col5 = st.columns(5)
+    with col1:
+        st.metric("总记录数", stats['total_records'])
+    with col2:
+        st.metric("整体准确率", f"{stats['overall_accuracy']:.1%}")
+    with col3:
+        st.metric("最近10天", f"{stats['recent_10_accuracy']:.1%}")
+    with col4:
+        st.metric("当前连胜", f"{stats['current_win_streak']} 天")
+    with col5:
+        st.metric("最大连胜", f"{stats['max_win_streak']} 天")
+
+    st.divider()
+
+    chart_col1, chart_col2 = st.columns(2)
+    with chart_col1:
+        st.subheader("准确率 × 市场状态")
+        by_regime = stats.get('by_regime', {})
+        if by_regime:
+            regimes = list(by_regime.keys())
+            accs = [by_regime[r]['accuracy'] for r in regimes]
+            fig = go.Figure(data=[
+                go.Bar(x=regimes, y=accs, text=[f"{a:.1%}" for a in accs],
+                       textposition='auto', marker_color=['#636efa', '#ef553b', '#00cc96'])
+            ])
+            fig.update_layout(yaxis_tickformat='.0%', yaxis_title='准确率',
+                              height=300, margin=dict(t=10, b=10))
+            st.plotly_chart(fig, use_container_width=True)
+
+    with chart_col2:
+        st.subheader("准确率 × 方向")
+        by_dir = stats.get('by_direction', {})
+        if by_dir:
+            dirs = list(by_dir.keys())
+            accs_d = [by_dir[d]['accuracy'] for d in dirs]
+            fig = go.Figure(data=[
+                go.Bar(x=dirs, y=accs_d, text=[f"{a:.1%}" for a in accs_d],
+                       textposition='auto', marker_color=['#00cc96', '#ef553b'])
+            ])
+            fig.update_layout(yaxis_tickformat='.0%', yaxis_title='准确率',
+                              height=300, margin=dict(t=10, b=10))
+            st.plotly_chart(fig, use_container_width=True)
+
+    st.subheader("状态 × 方向 准确率矩阵")
+    cross = stats.get('by_regime_direction', {})
+    if cross:
+        rows = []
+        for regime, dirs in cross.items():
+            row = {'市场状态': regime}
+            for dname in ['做多', '做空']:
+                if dname in dirs:
+                    row[dname] = f"{dirs[dname]['accuracy']:.1%} (n={dirs[dname]['count']})"
+                else:
+                    row[dname] = '-'
+            rows.append(row)
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    st.subheader("预测 vs 实际收益 (最近30天)")
+    recent_30 = records[-30:]
+    if recent_30:
+        dates = [r['trade_dt'] for r in recent_30]
+        preds = [r['predicted_return_smooth'] for r in recent_30]
+        actuals = [r.get('actual_return') for r in recent_30]
+
+        fig2 = go.Figure()
+        fig2.add_trace(go.Scatter(x=dates, y=preds, mode='lines+markers',
+                                  name='预测收益', line=dict(color='#636efa')))
+        fig2.add_trace(go.Scatter(x=dates, y=actuals, mode='lines+markers',
+                                  name='实际收益', line=dict(color='#ef553b')))
+        fig2.add_hline(y=0, line_dash='dash', line_color='gray', opacity=0.5)
+        fig2.update_layout(height=350, margin=dict(t=10, b=10),
+                           yaxis_title='收益率(%)', hovermode='x unified')
+        st.plotly_chart(fig2, use_container_width=True)
+
+    st.subheader("最近 20 条记忆记录")
+    recent_20 = records[-20:][::-1]
+    table_data = []
+    for r in recent_20:
+        is_correct = r.get('is_correct')
+        if is_correct is True:
+            status = '正确'
+        elif is_correct is False:
+            status = '错误'
+        else:
+            status = '—'
+        table_data.append({
+            '日期': r['trade_dt'],
+            '状态': r['regime_name'],
+            '方向': r['direction_name'],
+            '置信度': f"{r['confidence']:.1%}",
+            '预测收益': f"{r['predicted_return_smooth']:.4f}%",
+            '实际收益': f"{r.get('actual_return', 'N/A')}",
+            '结果': status,
+        })
+    st.dataframe(pd.DataFrame(table_data), use_container_width=True, hide_index=True)
+
+    st.divider()
+    st.subheader("LLM 归因反思")
+    st.caption("基于最近 20 条交易记录，DeepSeek 分析失败模式和改善建议")
+
+    if st.button("执行归因反思", use_container_width=True, type="primary"):
+        with st.spinner("DeepSeek 分析中..."):
+            reflection = mem.llm_reflection()
+            st.markdown(reflection)
 
 
 if __name__ == '__main__':
