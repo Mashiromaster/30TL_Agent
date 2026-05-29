@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data files (large binary files — manage with Git LFS or exclude)
+data/tick/*.pkl
+data/macro/*.pkl
+data/*.pkl
+data/*.txt
+
+# Model outputs (generated files)
+outputs/*.pkl
+outputs/*.csv
+outputs/*.json
+outputs/*.png
+
+# Models (trained binary)
+models/*.pkl
+
+# Streamlit
+.streamlit/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environment
+.env
+.env.local
