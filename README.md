@@ -1,6 +1,8 @@
 # F_Agent — TL 国债期货量化策略系统
 
-30年期国债期货（TL）量化投机策略，基于 LightGBM 双模型，整合量价、微观结构、基差和宏观因子，预测 30 分钟 forward return，分市场状态执行多空交易。
+30年期国债期货（TL）量化投机策略，基于 LightGBM 双模型，整合量价、微观结构、基差和宏观因子，预测 30 分钟 forward return，分市场状态执行多空交易Agent。
+<img width="2281" height="1139" alt="demo" src="https://github.com/user-attachments/assets/a599155e-9c11-4edf-a6e2-00a31ead267e" />
+
 
 ## 核心能力
 
