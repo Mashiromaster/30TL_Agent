@@ -71,6 +71,7 @@ class TradingMemory:
             'direction_name': signal_dict.get('direction_name', ''),
             'confidence': signal_dict.get('confidence', 0),
             'predicted_return_smooth': signal_dict.get('predicted_return_smooth', 0),
+            'pred_rank_pct': signal_dict.get('pred_rank_pct', 0.5),
             'upper_threshold': signal_dict.get('upper_threshold', 0),
             'lower_threshold': signal_dict.get('lower_threshold', 0),
             'suggested_weight': signal_dict.get('suggested_weight', 0),
@@ -87,8 +88,9 @@ class TradingMemory:
     # ─── Historical backfill ───────────────────────────────
 
     def backfill_from_predictions(self):
-        """Reconstruct daily signals from df_predictions.pkl using the
-        same EMA + expanding-window quantile logic as SignalGenerator."""
+        """Reconstruct daily signals from df_predictions.pkl using
+        the RANK-BASED signal logic (same as SignalDashboard / backtest_v2).
+        This replaces the old absolute-threshold approach."""
         pred_path = os.path.join(self.base_dir, "outputs/df_predictions.pkl")
         if not os.path.exists(pred_path):
             print(f"[Memory] 找不到预测文件: {pred_path}")
@@ -103,56 +105,59 @@ class TradingMemory:
 
         df = df.sort_values('date').reset_index(drop=True)
 
-        # EMA smooth (same as SignalGenerator)
-        df['Pred_Smooth'] = df['Pred_Ret'].ewm(span=self.signal_smooth_span, adjust=False).mean()
-        pred_lagged = df['Pred_Smooth'].shift(1)
+        # === 甜点区排名信号 (基于记忆回测优化, 2026-06-03) ===
+        smooth_span = 60
+        lookback = 480
+        confirm_bars = 10
+        # 做空甜点区: rank 15%-30%  (准确率72.7%)
+        # 做多甜点区: rank 70%-85%  (准确率63.6%)
+        short_inner = 0.15
+        short_outer = 0.30
+        long_inner = 0.70
+        long_outer = 0.85
 
-        # Expanding-window quantile thresholds
-        upper_q = pred_lagged.expanding(min_periods=100).quantile(
-            self.thresholds[0]['upper'])
-        lower_q = pred_lagged.expanding(min_periods=100).quantile(
-            self.thresholds[0]['lower'])
+        df['Pred_Smooth'] = df['Pred_Ret'].ewm(span=smooth_span, adjust=False).mean()
 
-        df['Upper_Q'] = upper_q
-        df['Lower_Q'] = lower_q
+        # 计算滚动排名
+        df['Pred_Rank'] = np.nan
+        for i in range(lookback, len(df)):
+            window = df['Pred_Smooth'].iloc[i - lookback:i]
+            current = df['Pred_Smooth'].iloc[i]
+            df.loc[df.index[i], 'Pred_Rank'] = (window < current).sum() / len(window)
 
-        # Group by trade_dt, take last bar of each day as the signal
-        unique_dates = df['trade_dt'].unique()
-        pred_std = df['Pred_Smooth'].std()
+        # 甜点区信号: 仅交易中间置信度区域
+        df['Raw_Signal'] = 0
+        df.loc[(df['Pred_Rank'] >= short_inner) & (df['Pred_Rank'] < short_outer), 'Raw_Signal'] = -1
+        df.loc[(df['Pred_Rank'] >= long_inner) & (df['Pred_Rank'] < long_outer), 'Raw_Signal'] = 1
 
+        # 信号确认
+        df['Confirmed_Signal'] = 0
+        for i in range(confirm_bars, len(df)):
+            ws = df['Raw_Signal'].iloc[i - confirm_bars:i]
+            if (ws == 1).all():
+                df.loc[df.index[i], 'Confirmed_Signal'] = 1
+            elif (ws == -1).all():
+                df.loc[df.index[i], 'Confirmed_Signal'] = -1
+
+        # 按交易日期取最后一条bar的信号
+        unique_dates = sorted(df['trade_dt'].unique())
         records = []
+
         for dt in unique_dates:
             day_bars = df[df['trade_dt'] == dt]
             if len(day_bars) == 0:
                 continue
 
             last = day_bars.iloc[-1]
-            smooth = last['Pred_Smooth']
-            upper = last['Upper_Q']
-            lower = last['Lower_Q']
+            signal = int(last['Confirmed_Signal'])
             regime = int(last['Market_Regime']) if pd.notna(last['Market_Regime']) else 0
+            rank = float(last['Pred_Rank']) if pd.notna(last['Pred_Rank']) else 0.5
 
-            if pd.notna(smooth) and pd.notna(upper) and pd.notna(lower):
-                if smooth > upper:
-                    direction = 1
-                elif smooth < lower:
-                    direction = -1
-                else:
-                    direction = 0
-            else:
-                direction = 0
-                upper = 0.0
-                lower = 0.0
-
-            if direction == 1 and pred_std > 0:
-                confidence = min(1.0, (smooth - upper) / (pred_std + 1e-9))
-            elif direction == -1 and pred_std > 0:
-                confidence = min(1.0, (lower - smooth) / (pred_std + 1e-9))
-            else:
-                confidence = 0.0
+            # 置信度：排名距离0.5的距离 × 2
+            confidence = round(abs(rank - 0.5) * 2, 3)
 
             weight_map = {0: 1.0, 1: 0.8, 2: 0.8}
-            suggested_weight = weight_map.get(regime, 1.0) * confidence
+            suggested_weight = round(weight_map.get(regime, 1.0) * confidence, 3)
 
             record = {
                 'trade_dt': str(dt)[:10],
@@ -160,13 +165,16 @@ class TradingMemory:
                 'close': float(last['close']) if pd.notna(last.get('close')) else None,
                 'market_regime': regime,
                 'regime_name': ['正常', '高波动', '趋势'][regime],
-                'direction': direction,
-                'direction_name': {1: '做多', -1: '做空', 0: '观望'}[direction],
-                'confidence': round(float(confidence), 4),
-                'predicted_return_smooth': round(float(smooth), 6) if pd.notna(smooth) else 0,
-                'upper_threshold': round(float(upper), 6) if pd.notna(upper) else 0,
-                'lower_threshold': round(float(lower), 6) if pd.notna(lower) else 0,
-                'suggested_weight': round(float(suggested_weight), 4),
+                'direction': signal,
+                'direction_name': {1: '做多', -1: '做空', 0: '观望'}[signal],
+                'confidence': confidence,
+                'predicted_return_smooth': round(float(last['Pred_Smooth']), 6) if pd.notna(last['Pred_Smooth']) else 0,
+                'pred_rank_pct': round(rank, 3),
+                'upper_threshold': round(long_inner, 2),
+                'lower_threshold': round(short_outer, 2),
+                'upper_outer': round(long_outer, 2),
+                'lower_inner': round(short_inner, 2),
+                'suggested_weight': suggested_weight,
                 'model_used': 'base',
                 'actual_return': None,
                 'is_correct': None,

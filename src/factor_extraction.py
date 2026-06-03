@@ -446,7 +446,8 @@ def calculate_combined_factors(df):
     return df
 
 
-def calculate_enhanced_factors(df, df_tick=None, df_basis=None, df_macro=None, bar_format='end'):
+def calculate_enhanced_factors(df, df_tick=None, df_basis=None, df_macro=None, bar_format='end',
+                                use_enhanced=True):
     df = df.copy()
     print("[Factor] 开始计算因子 ...")
     
@@ -471,6 +472,11 @@ def calculate_enhanced_factors(df, df_tick=None, df_basis=None, df_macro=None, b
     
     # 5. 计算组合因子
     df = calculate_combined_factors(df)
+    
+    # 6. 计算新增增强因子（制度自适应）
+    if use_enhanced:
+        from enhanced_factors import add_enhanced_factors
+        df = add_enhanced_factors(df)
     
     # 清洗
     df.replace([np.inf, -np.inf], np.nan, inplace=True)

@@ -6,6 +6,7 @@
 #   2. 中金所月度市场报告 (月度 PDF) — cffex.com.cn
 #   3. 新浪财经债券研报聚合页 (HTML) — stock.finance.sina.com.cn
 #   4. 已有本地新闻数据 (bond_news.pkl) — 从 llm_intelligence 复用
+#   5. 本地 agentic_rag 目录下的 PDF/文本资料 — 多级索引
 
 import os
 import re
@@ -47,6 +48,7 @@ class ResearchCrawler:
     PBC_LIST_URL = "http://www.pbc.gov.cn/goutongjiaoliu/113456/113469/index.html"
     PBC_ALT_URL = "https://nanjing.pbc.gov.cn/zhengcehuobisi/125207/125227/125957/index.html"
     CFFEX_MONTHLY_BASE = "http://www.cffex.com.cn/sj/monthlyReport"
+    LOCAL_AGENTIC_RAG_DIR = "agentic_rag"
 
     @staticmethod
     def _http_headers():
@@ -84,6 +86,70 @@ class ResearchCrawler:
         except Exception as e:
             print(f"  [RAGCrawler] Failed to fetch {cache_name}: {e}")
             return pd.DataFrame()
+
+    def _extract_pdf_text(self, pdf_path, max_pages=None):
+        import pdfplumber
+
+        text_parts = []
+        with pdfplumber.open(pdf_path) as pdf:
+            pages = pdf.pages if max_pages is None else pdf.pages[:max_pages]
+            for page in pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text_parts.append(page_text)
+        return "\n".join(text_parts).strip()
+
+    def _read_text_file(self, file_path):
+        for encoding in ('utf-8', 'gbk', 'utf-8-sig'):
+            try:
+                with open(file_path, 'r', encoding=encoding) as f:
+                    return f.read().strip()
+            except Exception:
+                continue
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            return f.read().strip()
+
+    def fetch_local_agentic_rag(self, base_dir):
+        """Load local documents from the agentic_rag directory."""
+        root_dir = os.path.join(base_dir, self.LOCAL_AGENTIC_RAG_DIR)
+        if not os.path.exists(root_dir):
+            print(f"  [RAGCrawler] No local agentic_rag directory found")
+            return pd.DataFrame()
+
+        records = []
+        for dirpath, _, filenames in os.walk(root_dir):
+            for filename in filenames:
+                file_path = os.path.join(dirpath, filename)
+                suffix = Path(filename).suffix.lower()
+                title = Path(filename).stem
+                rel_path = os.path.relpath(file_path, base_dir)
+
+                try:
+                    if suffix == '.pdf':
+                        text = self._extract_pdf_text(file_path)
+                    elif suffix in {'.txt', '.md', '.markdown'}:
+                        text = self._read_text_file(file_path)
+                    else:
+                        continue
+
+                    text = re.sub(r'\n{3,}', '\n\n', text).strip()
+                    if len(text) < 200:
+                        continue
+
+                    records.append({
+                        'source': 'agentic_rag',
+                        'title': title,
+                        'file_name': filename,
+                        'file_path': rel_path.replace('\\', '/'),
+                        'content': text,
+                        'doc_type': 'agentic_rag_local',
+                        'fetched_at': datetime.now().strftime('%Y-%m-%d'),
+                    })
+                except Exception as e:
+                    print(f"  [RAGCrawler] agentic_rag file failed: {filename} -> {e}")
+
+        print(f"  [RAGCrawler] agentic_rag local docs: {len(records)} parsed")
+        return pd.DataFrame(records) if records else pd.DataFrame()
 
     def fetch_pbc_reports(self):
         """Fetch PBC monetary policy reports via the listing page → extract HTML content."""
@@ -436,8 +502,8 @@ class ResearchCrawler:
         )
 
     def fetch_all(self, include_pbc=True, include_cffex=True, include_sina=True,
-                  include_news=True, include_macro_snapshot=True, cffex_year=2025,
-                  base_dir=None):
+                  include_news=True, include_macro_snapshot=True, include_local_agentic=True,
+                  cffex_year=2025, base_dir=None):
         """Fetch all sources. Returns list of Document objects."""
         print(f"\n[RAGCrawler] === Fetching research documents ===")
         print(f"[RAGCrawler] Cache directory: {self.cache_dir}")
@@ -464,6 +530,23 @@ class ResearchCrawler:
         ref_docs = self.build_policy_reference_docs()
         all_docs.extend(ref_docs)
         print(f"  [RAGCrawler] Embedded {len(ref_docs)} policy reference documents")
+
+        # 1c. Local agentic_rag documents
+        if include_local_agentic and base_dir:
+            print(f"\n[RAGCrawler] --- Local agentic_rag Documents ---")
+            df = self.fetch_local_agentic_rag(base_dir)
+            if len(df) > 0:
+                for _, row in df.iterrows():
+                    all_docs.append(Document(
+                        content=row['content'],
+                        metadata={
+                            'source': row.get('source', 'agentic_rag'),
+                            'title': row.get('title', row.get('file_name', '')),
+                            'file_name': row.get('file_name', ''),
+                            'file_path': row.get('file_path', ''),
+                            'doc_type': row.get('doc_type', 'agentic_rag_local'),
+                        }
+                    ))
 
         # 2. CFFEX Monthly Reports
         if include_cffex:
@@ -572,15 +655,19 @@ class DocumentParser:
 
         return chunks
 
-    def process_documents(self, documents):
+    def process_documents(self, documents, level_name='passage'):
         """Convert a list of Document objects into chunked documents with metadata."""
         chunked = []
         for doc in documents:
+            doc_signature = json.dumps(doc.metadata, ensure_ascii=False, sort_keys=True)
+            parent_doc_id = hashlib.md5((doc.content[:2000] + doc_signature).encode('utf-8', errors='ignore')).hexdigest()[:16]
             chunks = self.split_text(doc.content)
             for i, chunk in enumerate(chunks):
                 meta = dict(doc.metadata)
                 meta['chunk_index'] = i
                 meta['chunk_id'] = hashlib.md5(chunk.encode()).hexdigest()[:12]
+                meta['parent_doc_id'] = parent_doc_id
+                meta['level'] = level_name
                 chunked.append(Document(content=chunk, metadata=meta))
         print(f"[Parser] {len(documents)} docs → {len(chunked)} chunks "
               f"(chunk_size={self.chunk_size}, overlap={self.chunk_overlap})")
@@ -638,14 +725,39 @@ class VectorStore:
         return self.embedder.encode(texts, normalize_embeddings=True,
                                      show_progress_bar=False).tolist()
 
+    def reset(self):
+        """Drop and recreate the collection."""
+        try:
+            import chromadb
+            self._client = chromadb.PersistentClient(path=self.persist_dir)
+            self._client.delete_collection(self.collection_name)
+        except Exception:
+            pass
+        self._collection = None
+
+    def _doc_signature(self, doc):
+        meta = doc.metadata or {}
+        fields = {
+            'source': meta.get('source', ''),
+            'title': meta.get('title', ''),
+            'period': meta.get('period', ''),
+            'date': meta.get('date', ''),
+            'file_path': meta.get('file_path', ''),
+            'doc_type': meta.get('doc_type', ''),
+        }
+        raw = json.dumps(fields, ensure_ascii=False, sort_keys=True) + '|' + doc.content[:2000]
+        return hashlib.md5(raw.encode('utf-8', errors='ignore')).hexdigest()[:16]
+
     def add_documents(self, documents, batch_size=32):
-        """Add documents to the vector store after chunking."""
+        """Add documents to the vector store after hierarchical chunking."""
         if not documents:
             print("[VectorStore] No documents to add")
             return 0
 
-        parser = DocumentParser()
-        chunks = parser.process_documents(documents)
+        overview_parser = DocumentParser(chunk_size=1500, chunk_overlap=150)
+        passage_parser = DocumentParser(chunk_size=500, chunk_overlap=100)
+        chunks = overview_parser.process_documents(documents, level_name='document') + \
+            passage_parser.process_documents(documents, level_name='passage')
 
         total = 0
         for i in range(0, len(chunks), batch_size):
@@ -653,7 +765,7 @@ class VectorStore:
             texts = [d.content for d in batch]
             metadatas = [d.metadata for d in batch]
             ids = [
-                f"{d.metadata.get('source','unk')}_{d.metadata.get('period',d.metadata.get('date','?'))}_{d.metadata.get('chunk_index',0)}"
+                f"{d.metadata.get('level','chunk')}_{d.metadata.get('parent_doc_id', self._doc_signature(d))}_{d.metadata.get('chunk_index',0)}"
                 for d in batch
             ]
 
@@ -685,9 +797,21 @@ class VectorStore:
         """Return collection statistics."""
         try:
             n = self.collection.count()
-            return {'total_chunks': n, 'collection': self.collection_name}
+            doc_count = 0
+            passage_count = 0
+            try:
+                doc_count = len(self.collection.get(where={'level': 'document'}, include=[]).get('ids', []))
+                passage_count = len(self.collection.get(where={'level': 'passage'}, include=[]).get('ids', []))
+            except Exception:
+                pass
+            return {
+                'total_chunks': n,
+                'document_chunks': doc_count,
+                'passage_chunks': passage_count,
+                'collection': self.collection_name,
+            }
         except Exception:
-            return {'total_chunks': 0, 'collection': self.collection_name}
+            return {'total_chunks': 0, 'document_chunks': 0, 'passage_chunks': 0, 'collection': self.collection_name}
 
 
 # ============================================================
@@ -736,7 +860,9 @@ class RAGAnalyzer:
             return stats
 
         print("[RAGAnalyzer] Building research index...")
-        docs = self.crawler.fetch_all(base_dir=self.base_dir)
+        if force_refresh:
+            self.vector_store.reset()
+        docs = self.crawler.fetch_all(base_dir=self.base_dir, include_local_agentic=True)
         if not docs:
             print("[RAGAnalyzer] No documents fetched. Index build aborted.")
             return stats
@@ -768,11 +894,51 @@ class RAGAnalyzer:
                     'stats': stats,
                 }
 
-        # 2. Retrieve relevant chunks
-        results = self.vector_store.search(question, top_k=top_k, filter_dict=filter_dict)
-        retrieved_docs = results.get('documents', [[]])[0]
-        retrieved_meta = results.get('metadatas', [[]])[0]
-        distances = results.get('distances', [[]])[0]
+        # 2. Two-stage retrieval: document-level recall → passage-level expansion
+        doc_filter = dict(filter_dict) if filter_dict else {}
+        doc_filter['level'] = 'document'
+        passage_filter = dict(filter_dict) if filter_dict else {}
+        passage_filter['level'] = 'passage'
+
+        parent_results = self.vector_store.search(question, top_k=max(4, min(6, top_k)), filter_dict=doc_filter)
+        parent_docs = parent_results.get('documents', [[]])[0]
+        parent_metas = parent_results.get('metadatas', [[]])[0]
+        parent_doc_ids = []
+        for meta in parent_metas:
+            parent_id = meta.get('parent_doc_id')
+            if parent_id and parent_id not in parent_doc_ids:
+                parent_doc_ids.append(parent_id)
+
+        passage_results = self.vector_store.search(question, top_k=max(top_k * 4, 20), filter_dict=passage_filter)
+        passage_docs = passage_results.get('documents', [[]])[0]
+        passage_metas = passage_results.get('metadatas', [[]])[0]
+        passage_distances = passage_results.get('distances', [[]])[0]
+
+        candidates = []
+        for doc_text, meta, distance in zip(passage_docs, passage_metas, passage_distances):
+            parent_id = meta.get('parent_doc_id')
+            boost = 0.35 if parent_id in parent_doc_ids else 0.0
+            level_boost = 0.10 if meta.get('level') == 'document' else 0.0
+            score = (1.0 - float(distance)) + boost + level_boost
+            candidates.append((score, doc_text, meta, distance))
+
+        for doc_text, meta in zip(parent_docs, parent_metas):
+            candidates.append((1.2, doc_text, meta, 0.0))
+
+        candidates.sort(key=lambda x: x[0], reverse=True)
+
+        retrieved_docs = []
+        retrieved_meta = []
+        seen = set()
+        for score, doc_text, meta, _ in candidates:
+            key = (meta.get('parent_doc_id', ''), meta.get('chunk_id', ''), meta.get('level', ''))
+            if key in seen:
+                continue
+            seen.add(key)
+            retrieved_docs.append(doc_text)
+            retrieved_meta.append(meta)
+            if len(retrieved_docs) >= top_k:
+                break
 
         if not retrieved_docs:
             return {
@@ -786,7 +952,8 @@ class RAGAnalyzer:
         for i, (doc, meta) in enumerate(zip(retrieved_docs, retrieved_meta)):
             src = meta.get('source', '未知来源')
             title = meta.get('title', meta.get('period', '未知标题'))
-            context_parts.append(f"[摘录{i+1}] 来源: {src} | {title}\n{doc[:800]}")
+            level = meta.get('level', 'passage')
+            context_parts.append(f"[摘录{i+1}] 层级: {level} | 来源: {src} | {title}\n{doc[:900]}")
 
         context = "\n\n---\n\n".join(context_parts)
 
@@ -860,7 +1027,7 @@ class RAGAnalyzer:
         sources = []
         if metadatas:
             for meta in metadatas:
-                key = (meta.get('source', ''), meta.get('title', meta.get('period', '')))
+                key = (meta.get('source', ''), meta.get('title', meta.get('period', '')), meta.get('file_path', ''))
                 if key not in seen:
                     seen.add(key)
                     sources.append({
@@ -868,6 +1035,7 @@ class RAGAnalyzer:
                         'title': meta.get('title', meta.get('period', '未知')),
                         'date': str(meta.get('date', meta.get('period', ''))),
                         'doc_type': meta.get('doc_type', ''),
+                        'file_path': meta.get('file_path', ''),
                     })
         return sources
 
@@ -917,10 +1085,11 @@ class RAGAnalyzer:
         n = stats['total_chunks']
         has_key = bool(self.api_key)
         status_lines = [
-            f"向量索引: {n} 个文本块",
+            f"向量索引: {n} 个文本块 (文档层 {stats.get('document_chunks', 0)} / 段落层 {stats.get('passage_chunks', 0)})",
             f"Embedding: {self.vector_store.embedding_model_name}",
             f"LLM: {'DeepSeek V4 (已配置)' if has_key else '离线模式 (未设置API Key)'}",
             f"缓存目录: {self.cache_dir}",
+            f"本地文档: agentic_rag",
         ]
         return '\n'.join(status_lines)
 

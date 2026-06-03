@@ -3,15 +3,17 @@
 
 import os
 import sys
+import json
 import argparse
+from datetime import datetime
 
 
 def main():
     parser = argparse.ArgumentParser(description='TL国债期货量化策略系统')
     parser.add_argument(
         '--mode', type=str, default='train',
-        choices=['train', 'inference'],
-        help='运行模式: train=因子构建+训练+回测, inference=因子更新+实时信号'
+        choices=['train', 'inference', 'iterate'],
+        help='运行模式: train=因子构建+训练+回测, inference=因子更新+实时信号, iterate=自我迭代诊断'
     )
     args = parser.parse_args()
 
@@ -30,6 +32,8 @@ def main():
         run_train(BASE_DIR, TICK_SUBDIR)
     elif args.mode == 'inference':
         run_inference_mode(BASE_DIR)
+    elif args.mode == 'iterate':
+        run_iteration(BASE_DIR)
 
 
 def run_train(base_dir, tick_subdir):
@@ -70,6 +74,30 @@ def run_inference_mode(base_dir):
     print("\n" + "#" * 60)
     print("#  实时信号生成完成" + " " * 44 + "#")
     print("#" * 60)
+
+
+def run_iteration(base_dir):
+    """运行自我迭代诊断"""
+    from self_iteration import SelfIterationEngine
+
+    engine = SelfIterationEngine(base_dir)
+    report = engine.run_diagnostic()
+    report_text = engine.generate_report_text(report)
+
+    print(report_text)
+
+    # Save report
+    output_dir = os.path.join(base_dir, "outputs")
+    os.makedirs(output_dir, exist_ok=True)
+    report_path = os.path.join(output_dir, f"iteration_report_{datetime.now().strftime('%Y%m%d_%H%M')}.json")
+    with open(report_path, 'w', encoding='utf-8') as f:
+        json.dump(report, f, ensure_ascii=False, indent=2, default=str)
+    print(f"\n诊断报告已保存: {report_path}")
+
+    # Auto-suggest actions
+    adj = engine.auto_adjust_signal_params()
+    if adj:
+        print(f"\n自动参数建议: 置信度阈值={adj['suggested_confidence_threshold']}")
 
 
 if __name__ == '__main__':

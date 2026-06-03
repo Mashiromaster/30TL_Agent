@@ -28,6 +28,46 @@ st.set_page_config(
 
 BASE_DIR = r"D:\桌面\F_Agent"
 
+# ---- Variety configuration ----
+VARIETY_CONFIG = {
+    'TL': {
+        'label': 'TL (30年期)',
+        'prefix': 'TL',
+        'file_name': 'TL分钟级量价数据.pkl',
+        'main_symbol': 'TL0',
+        'contracts': ['TL2609', 'TL2606', 'TL2603', 'TL2512', 'TL2509'],
+        'oi_thresholds': [(100000, 'TL2609'), (50000, 'TL2606'), (20000, 'TL2603')],
+        'oi_fallback': 'TL2512',
+    },
+    'T': {
+        'label': 'T (10年期)',
+        'prefix': 'T',
+        'file_name': 'T分钟级量价数据.pkl',
+        'main_symbol': 'T0',
+        'contracts': ['T2609', 'T2606', 'T2603', 'T2512', 'T2509'],
+        'oi_thresholds': [(80000, 'T2609'), (40000, 'T2606'), (15000, 'T2603')],
+        'oi_fallback': 'T2512',
+    },
+    'TF': {
+        'label': 'TF (5年期)',
+        'prefix': 'TF',
+        'file_name': 'TF分钟级量价数据.pkl',
+        'main_symbol': 'TF0',
+        'contracts': ['TF2609', 'TF2606', 'TF2603', 'TF2512', 'TF2509'],
+        'oi_thresholds': [(50000, 'TF2609'), (25000, 'TF2606'), (10000, 'TF2603')],
+        'oi_fallback': 'TF2512',
+    },
+    'TS': {
+        'label': 'TS (2年期)',
+        'prefix': 'TS',
+        'file_name': 'TS分钟级量价数据.pkl',
+        'main_symbol': 'TS0',
+        'contracts': ['TS2609', 'TS2606', 'TS2603', 'TS2512', 'TS2509'],
+        'oi_thresholds': [(30000, 'TS2609'), (15000, 'TS2606'), (5000, 'TS2603')],
+        'oi_fallback': 'TS2512',
+    },
+}
+
 
 @st.cache_data(ttl=300, show_spinner="加载数据中...")
 def load_data(base_dir):
@@ -65,13 +105,110 @@ def get_recent_predictions(base_dir, df_factors, days=7):
     return result
 
 
+def _infer_live_ticker(df_minute, variety='TL'):
+    """Infer actual contract code from OI for the given variety's main-contract symbol."""
+    cfg = VARIETY_CONFIG.get(variety, VARIETY_CONFIG['TL'])
+    oi_last = float(df_minute['hold'].iloc[-1])
+    for threshold, contract in cfg['oi_thresholds']:
+        if oi_last > threshold:
+            return contract
+    return cfg['oi_fallback']
+
+
+@st.cache_data(ttl=60, show_spinner="拉取最新分钟行情中...")
+def fetch_live_minutes(variety='TL'):
+    import akshare as ak
+
+    cfg = VARIETY_CONFIG.get(variety, VARIETY_CONFIG['TL'])
+    symbols = [cfg['main_symbol']] + cfg['contracts']
+    main_sym = cfg['main_symbol']
+    frames = []
+    for sym in symbols:
+        try:
+            raw = ak.futures_zh_minute_sina(symbol=sym, period='1')
+            if raw is None or len(raw) == 0:
+                continue
+
+            ticker = sym if sym != main_sym else _infer_live_ticker(raw, variety)
+            df_out = pd.DataFrame()
+            df_out['date'] = pd.to_datetime(raw['datetime'])
+            df_out['trade_dt'] = df_out['date'].dt.normalize()
+            df_out['ticker'] = ticker
+            df_out['open'] = raw['open'].astype(float)
+            df_out['high'] = raw['high'].astype(float)
+            df_out['low'] = raw['low'].astype(float)
+            df_out['close'] = raw['close'].astype(float)
+            df_out['volume'] = raw['volume'].astype(float)
+            df_out['money'] = df_out['close'] * df_out['volume'] * 100
+            df_out['oi'] = raw['hold'].astype(float)
+            df_out['time'] = df_out['date'].dt.strftime('%H:%M')
+            df_out['source'] = 'live'
+            frames.append(df_out)
+        except Exception as e:
+            print(f"[Dashboard] live fetch failed for {sym}: {e}")
+
+    if not frames:
+        return pd.DataFrame()
+
+    live_df = pd.concat(frames, ignore_index=True)
+    live_df = live_df.sort_values(['date', 'ticker']).reset_index(drop=True)
+    return live_df
+
+
+def fetch_live_tl_minutes(symbols=None):
+    """Backward-compatible wrapper for legacy callers."""
+    return fetch_live_minutes(variety='TL')
+
+
+def _merge_market_frames(base_df, live_df):
+    if base_df is None or len(base_df) == 0:
+        return live_df.copy() if live_df is not None else pd.DataFrame()
+    if live_df is None or len(live_df) == 0:
+        return base_df.copy()
+
+    merged = pd.concat([base_df, live_df], ignore_index=True, sort=False)
+    merged = merged.drop_duplicates(subset=['date', 'ticker'], keep='last')
+    merged = merged.sort_values(['date', 'ticker']).reset_index(drop=True)
+    return merged
+
+
+def _select_main_contract_frame(df_frame):
+    """Collapse multi-ticker rows into a single main-contract series per timestamp."""
+    if df_frame is None or len(df_frame) == 0 or 'ticker' not in df_frame.columns:
+        return df_frame
+
+    if 'oi' in df_frame.columns and df_frame['oi'].notna().any():
+        sort_cols = ['date', 'oi', 'volume'] if 'volume' in df_frame.columns else ['date', 'oi']
+        selected = df_frame.sort_values(sort_cols).groupby('date', as_index=False).tail(1)
+    elif 'volume' in df_frame.columns and df_frame['volume'].notna().any():
+        selected = df_frame.sort_values(['date', 'volume']).groupby('date', as_index=False).tail(1)
+    else:
+        selected = df_frame.sort_values(['date', 'ticker']).groupby('date', as_index=False).tail(1)
+
+    return selected.sort_values('date').reset_index(drop=True)
+
+
 def main():
-    st.title("TL 国债期货量化策略 Dashboard")
-    st.caption("30年期国债期货 LightGBM 双模型策略 · 实时监控与回测分析")
+    variety = st.session_state.get('selected_variety', 'TL')
+    cfg_v = VARIETY_CONFIG.get(variety, VARIETY_CONFIG['TL'])
+    st.title(f"{cfg_v['label']} 国债期货量化策略 Dashboard")
+    st.caption(f"{cfg_v['label']} 国债期货 LightGBM 双模型策略 · 实时监控与回测分析")
 
     # ---- Sidebar ----
     with st.sidebar:
         st.header("⚙️ 控制面板")
+
+        # Variety selector (persisted in session state)
+        if 'selected_variety' not in st.session_state:
+            st.session_state.selected_variety = 'TL'
+
+        st.selectbox(
+            "品种",
+            list(VARIETY_CONFIG.keys()),
+            format_func=lambda k: VARIETY_CONFIG[k]['label'],
+            key='selected_variety',
+        )
+
         base_dir = st.text_input("项目路径", BASE_DIR)
         st.divider()
 
@@ -314,18 +451,51 @@ def _resample_ohlc(df, freq='5min'):
 
 
 def render_market_tab(ctx):
-    df = ctx.df_factors
-    if df is None or len(df) == 0:
-        st.warning("无因子数据")
+    df = ctx.df_factors  # factor data (for regime coloring only)
+    variety = st.session_state.get('selected_variety', 'TL')
+    cfg = VARIETY_CONFIG.get(variety, VARIETY_CONFIG['TL'])
+    st.subheader(f"{cfg['label']} 主力合约行情")
+
+    use_live = st.toggle("实时拉取最新分钟行情", value=True)
+    live_df = pd.DataFrame()
+    if use_live:
+        with st.spinner("正在获取最新分钟行情..."):
+            live_df = fetch_live_minutes(variety=variety)
+
+    # Load base price data from variety-specific raw minute file
+    raw_path = os.path.join(ctx.base_dir, "data", cfg['file_name'])
+    if os.path.exists(raw_path):
+        df_base = pd.read_pickle(raw_path)
+    elif df is not None and len(df) > 0:
+        df_base = df.copy()
+    else:
+        st.warning(f"无{cfg['label']}行情数据，请先运行 update_market_data.py --variety {variety} 拉取数据")
         return
 
-    st.subheader("主力合约行情")
+    df_base['date'] = pd.to_datetime(df_base['date'])
+    df_plot_source = _merge_market_frames(df_base, live_df)
+    df_plot_source['date'] = pd.to_datetime(df_plot_source['date'])
+    df_plot_source['trade_day'] = df_plot_source['date'].dt.normalize()
 
-    df['date'] = pd.to_datetime(df['date'])
-    date_min = df['date'].min().date()
-    date_max = df['date'].max().date()
+    # Merge Market_Regime from factor data for regime shading on chart
+    if df is not None and len(df) > 0 and 'Market_Regime' in df.columns:
+        regime_map = df[['date', 'Market_Regime']].copy()
+        regime_map['date'] = pd.to_datetime(regime_map['date'])
+        regime_map = regime_map.drop_duplicates(subset='date', keep='last')
+        df_plot_source = df_plot_source.merge(regime_map, on='date', how='left')
 
-    col1, col2, col3 = st.columns(3)
+    # Trading day info
+    all_trading_days = sorted(df_plot_source['trade_day'].dropna().unique())
+    all_trading_days = pd.DatetimeIndex(all_trading_days)
+    date_min = df_plot_source['trade_day'].min().date()
+    date_max = df_plot_source['trade_day'].max().date()
+    live_max = live_df['date'].max() if live_df is not None and len(live_df) > 0 else None
+    st.caption(
+        f"历史区间: {date_min} ~ {date_max}"
+        + (f" | 实时最新: {live_max}" if live_max is not None else " | 未获取到实时行情")
+    )
+
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
         lookback = st.selectbox(
             "回看周期",
@@ -341,44 +511,87 @@ def render_market_tab(ctx):
     with col3:
         ticker_filter = st.selectbox(
             "合约筛选",
-            ["全部"] + sorted(df['ticker'].dropna().unique().tolist())
+            ["全部"] + sorted(df_plot_source['ticker'].dropna().unique().tolist()),
+        )
+    with col4:
+        specific_date = st.date_input(
+            "跳转到特定日期",
+            value=None,
+            format="YYYY-MM-DD",
+            help="选择日期后K线将以此日期为中心显示。留空则使用回看周期。"
         )
 
     resample_map = {"1天": "1D", "1小时": "1h", "30分钟": "30min", "15分钟": "15min", "5分钟": "5min", "1分钟": None}
-    days_map = {"最近1周": 7, "最近1月": 30, "最近2月": 60, "最近3月": 90, "最近半年": 180, "全部": 9999}
-    cutoff = pd.Timestamp(date_max) - pd.Timedelta(days=days_map[lookback])
 
-    df_plot = df[df['date'] >= cutoff].copy()
+    # ---- Date-centric vs lookback windowing ----
+    if specific_date is not None:
+        target = pd.Timestamp(specific_date)
+        if target in all_trading_days:
+            center_idx = all_trading_days.get_loc(target)
+        else:
+            diffs = abs(all_trading_days - target)
+            center_idx = diffs.argmin()
+            actual_date = all_trading_days[center_idx].date()
+            st.info(f"选定日期 {specific_date} 非交易日，已自动调整到最近交易日: {actual_date}")
+
+        window_days = st.slider(
+            "前后交易日数",
+            min_value=3, max_value=60, value=15, step=1,
+            help="显示选定日期前后各多少根日K线"
+        )
+        start_idx = max(0, center_idx - window_days)
+        end_idx = min(len(all_trading_days) - 1, center_idx + window_days)
+        window_start = all_trading_days[start_idx]
+        window_end = all_trading_days[end_idx]
+        df_window = df_plot_source[
+            (df_plot_source['trade_day'] >= window_start) &
+            (df_plot_source['trade_day'] <= window_end)
+        ].copy()
+        st.caption(
+            f"显示 {all_trading_days[center_idx].date()} 前后 ±{window_days} 个交易日 "
+            f"(共 {end_idx - start_idx + 1} 个交易日: {window_start.date()} ~ {window_end.date()})"
+        )
+    else:
+        days_map = {"最近1周": 7, "最近1月": 30, "最近2月": 60, "最近3月": 90, "最近半年": 180, "全部": 9999}
+        if lookback == "全部":
+            df_window = df_plot_source.copy()
+        else:
+            cutoff_day = pd.Timestamp(date_max) - pd.Timedelta(days=days_map[lookback] - 1)
+            df_window = df_plot_source[df_plot_source['trade_day'] >= cutoff_day].copy()
+
+    if df_window is None or len(df_window) == 0:
+        st.info("当前回看周期下没有可显示的数据，请切换到更长周期。")
+        return
+
+    # Apply ticker filter (already populated above in col3)
+    df_plot = df_window.copy()
     if ticker_filter != "全部":
         df_plot = df_plot[df_plot['ticker'] == ticker_filter]
+    else:
+        df_plot = _select_main_contract_frame(df_plot)
+
+    if df_plot is None or len(df_plot) == 0:
+        st.info("当前筛选条件下没有可显示的数据，请切换回看周期或合约筛选。")
+        return
 
     # Resample if needed
     freq = resample_map[resolution]
     if freq:
         df_plot = _resample_ohlc(df_plot, freq)
 
+    if df_plot is None or len(df_plot) == 0:
+        st.info("当前分辨率下没有可显示的数据，请切换到更长的回看周期。")
+        return
+
     # Build adaptive rangebreaks based on resolution
     if freq == '1D':
         rangebreaks = [dict(bounds=["sat", "mon"])]
-        gap_threshold = pd.Timedelta(days=2)
     else:
         rangebreaks = [
             dict(bounds=["sat", "mon"]),
             dict(bounds=[15.25, 9.5], pattern="hour"),
             dict(bounds=[11.5, 13], pattern="hour"),
         ]
-        gap_threshold = pd.Timedelta(hours=4)
-
-    # Auto-detect large gaps (holidays) and hide them
-    dates = df_plot['date'].sort_values().values
-    gaps = np.diff(dates)
-    gap_mask = gaps > gap_threshold
-    gap_starts = dates[:-1][gap_mask]
-    gap_ends = dates[1:][gap_mask]
-    for s, e in zip(gap_starts, gap_ends):
-        rangebreaks.append(dict(
-            bounds=[s + pd.Timedelta(minutes=1), e - pd.Timedelta(minutes=1)]
-        ))
 
     with st.spinner("渲染图表中..."):
         fig = make_subplots(
@@ -415,6 +628,16 @@ def render_market_tab(ctx):
             marker_color=vol_colors, opacity=0.6,
         ), row=2, col=1)
 
+        # Vertical marker for specific date
+        if specific_date is not None:
+            fig.add_vline(
+                x=pd.Timestamp(specific_date),
+                line_dash="dash", line_color="#FFD700",
+                line_width=1.5, opacity=0.7,
+                annotation_text="选定日期", annotation_position="top",
+                row=1, col=1,
+            )
+
     fig.update_layout(
         height=500, margin=dict(l=10, r=10, t=10, b=10),
         hovermode='x unified',
@@ -429,15 +652,15 @@ def render_market_tab(ctx):
     st.plotly_chart(fig, use_container_width=True)
 
     # Regime distribution
-    if 'Market_Regime' in df.columns:
+    if 'Market_Regime' in df_plot_source.columns:
         st.divider()
         st.markdown("**市场状态分布**")
-        regime_counts = df['Market_Regime'].value_counts().sort_index()
+        regime_counts = df_plot_source['Market_Regime'].value_counts().sort_index()
         regime_labels = {0: '正常', 1: '高波动', 2: '趋势'}
         pie_data = pd.DataFrame({
             '状态': [regime_labels.get(i, str(i)) for i in regime_counts.index],
             '样本数': regime_counts.values,
-            '占比': (regime_counts.values / len(df) * 100).round(1),
+            '占比': (regime_counts.values / len(df_plot_source) * 100).round(1),
         })
         col_a, col_b = st.columns([1, 2])
         with col_a:
@@ -993,6 +1216,7 @@ def render_rag_tab(ctx):
         "中金所月报": 'cffex_monthly',
         "券商研报": 'research_report',
         "债券新闻": 'news',
+        "本地 agentic_rag": 'agentic_rag_local',
     }
     filter_choice = st.selectbox("文档类型过滤", list(filter_options.keys()), index=0)
 

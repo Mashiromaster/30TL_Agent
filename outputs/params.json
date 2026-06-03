@@ -1,0 +1,19 @@
+{
+  "signal": {
+    "smooth_span": 60,
+    "lookback_bars": 480,
+    "confirm_bars": 10,
+    "short_outer": 0.30,
+    "short_inner": 0.15,
+    "long_inner": 0.70,
+    "long_outer": 0.85,
+    "description": "甜点区过滤: 跳过最极端排名(0-15%和85-100%), 仅交易15-30%做空和70-85%做多"
+  },
+  "regime_weights": {
+    "0": 1.0,
+    "1": 0.8,
+    "2": 0.8
+  },
+  "last_optimized": "2026-06-03",
+  "optimization_note": "基于219笔交易记忆回测: 极端排名区(0-15%,85-100%)准确率仅55.6%/46.9%, 甜点区(15-30%,70-85%)准确率72.7%/63.6%"
+}
