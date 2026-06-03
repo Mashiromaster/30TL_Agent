@@ -8,49 +8,39 @@
 
 ---
 
-## 📊 核心功能
-
-| 模块 | 功能 |
-|------|------|
-| **信号看板** | 实时排名信号生成 + 预测走势图 + 甜点区标注 + 绩效快照 |
-| **市场监控** | 多分辨率K线(1min~日) + 市场状态着色 + 成交量分布 |
-| **因子分析** | Top15特征重要性 + 分位异常预警 + 因子历史分位图 |
-| **因子评估** | Alphalens风格 IC排名 + 稳定性散点图 + Spearman相关热力图 |
-| **回测表现** | NAV曲线 + 回撤分析 + 日收益分布 + 分状态收益 |
-| **宏观环境** | 收益率曲线形态 + 中美利差历史 + 宏观指标趋势 |
-| **AI情报** | DeepSeek债券新闻分析 + 量化数据交叉验证 |
-| **研究RAG** | ChromaDB检索 + 央行报告/中金所月报/研报语义搜索 + AI生成简报 |
-| **交易记忆** | 每日决策记录 + 准确率矩阵 + 状态×方向交叉分析 + AI归因反思 |
-| **自我迭代** | 滚动IC监控 + 制度漂移检测 + 失败模式聚类 + 自动参数调优 |
-| **模型评估** | 滚动窗口IC + 基线对比 + 退化检测 + 滚动IC趋势图 |
-| **超参优化** | Optuna贝叶斯超参搜索 + 多模型集成 + 多时域预测 |
-| **定时调度** | 6个自动化任务 + 一键运行/暂停 + 守护进程 |
-
-## 🖼️ Dashboard 预览
+## 📊 Dashboard 预览
 
 ### 信号看板 — 实时排名信号 + 甜点区过滤
-![信号看板](docs/01_signal_dashboard.png)
+![信号看板](docs/信号看板.png)
 
-### 市场监控 — 多分辨率K线 + 成交量
-![市场监控](docs/02_market_monitor.png)
+### 市场监控 — 多分辨率K线 + 成交量 + 市场状态
+![市场监控](docs/市场监控.png)
 
 ### 因子分析 — 特征重要性 + 分位异常预警
-![因子分析](docs/03_factor_analysis.png)
+![因子分析](docs/因子分析.png)
 
-### 回测表现 — NAV曲线 + 回撤分析
-![回测表现](docs/04_backtest.png)
+### 交易准确率分析 — 状态 × 方向交叉矩阵 + 可视化
+![交易准确率分析](docs/交易准确率分析.png)
 
-### 宏观环境 — 收益率曲线 + 中美利差
-![宏观环境](docs/05_macro_environment.png)
+### 交易记录 — 每日决策 + 实际结果 + ✅/❌判定
+![交易记录](docs/交易记录.png)
 
-### 交易记忆 — 准确率矩阵 + LLM反思
-![交易记忆](docs/07_trade_memory.png)
+### 自我诊断 — IC监控 + 制度漂移 + 参数调优
+![自我诊断](docs/自我诊断.png)
 
-### 自我迭代 — 诊断报告 + 参数自动调优
-![自我迭代](docs/08_self_iteration.png)
+### 自我诊断迭代 — 滚动报告 + 自动优化建议
+![自我诊断迭代](docs/自我诊断迭代.png)
 
-### 系统概览
-![概览](docs/09_overview.png)
+### RAG 检索 — 研报语义搜索 + 文档过滤 + AI简报
+![RAG检索](docs/GAG检索.png)
+
+### 超参优化 — Optuna贝叶斯搜索 + 多模型集成
+![超参优化](docs/超参优化.png)
+
+### 定时任务 — 6个自动化调度 + 一键运行/暂停
+![定时任务](docs/定时任务.png)
+
+---
 
 ## 🏗️ 系统架构
 
@@ -64,7 +54,7 @@
 │                  Factor Engine (151维)                    │
 │  动量·波动率·微观结构·量价·技术·基差·宏观·增强因子         │
 │  ┌──────────────────────────────────────────────┐       │
-│  │ 新增制度自适应因子 (34个):                      │       │
+│  │ 制度自适应因子 (34个):                          │       │
 │  │ OI增长率·波动率突破·ADX趋势·流动性压力·政策冲击  │       │
 │  └──────────────────────────────────────────────┘       │
 └──────────────────────┬──────────────────────────────────┘
@@ -84,10 +74,27 @@
                        ↓
 ┌─────────────────────────────────────────────────────────┐
 │                  Dashboard 13-Tab                         │
-│  信号看板·市场监控·因子分析·因子评估·回测·宏观·AI情报      │
-│  RAG研究·交易记忆·自我迭代·模型评估·超参优化·定时调度       │
+│  信号·监控·因子·因评·回测·宏观·AI·RAG·记忆·迭代·评估·调参·调度 │
 └─────────────────────────────────────────────────────────┘
 ```
+
+## 📊 核心功能 (13个面板)
+
+| 面板 | 功能 |
+|------|------|
+| **信号看板** | 实时排名信号生成 + 预测走势图 + 甜点区标注 + 绩效快照 |
+| **市场监控** | 多分辨率K线(1min~日) + 市场状态着色 + 成交量分布 |
+| **因子分析** | Top15特征重要性 + 分位异常预警 + 因子历史分位图 |
+| **因子评估** | Alphalens风格 IC排名 + 稳定性散点图 + Spearman相关热力图 |
+| **回测表现** | NAV曲线 + 回撤分析 + 日收益分布 + 分状态收益 |
+| **宏观环境** | 收益率曲线形态 + 中美利差历史 + 宏观指标趋势 |
+| **AI情报** | DeepSeek债券新闻分析 + 量化数据交叉验证 |
+| **研究RAG** | ChromaDB检索 + 央行报告/中金所月报/研报语义搜索 + AI生成简报 |
+| **交易记忆** | 准确率矩阵 + 状态×方向交叉分析 + LLM归因反思 |
+| **自我迭代** | 滚动IC监控 + 制度漂移检测 + 时间衰减加权 + 参数自动调优 |
+| **模型评估** | 滚动窗口IC + 基线对比 + 退化检测 + 滚动IC趋势图 |
+| **超参优化** | Optuna贝叶斯超参搜索 + 多模型集成(LGB+XGB+CatBoost) + 多时域 |
+| **定时调度** | 6个自动化任务 + 一键运行/暂停 + 守护进程 |
 
 ## 📁 项目结构
 
@@ -100,15 +107,7 @@ F_Agent/
 │   ├── tick/                        # 每日tick快照 (.pkl)
 │   ├── macro/                       # AKShare 宏观数据缓存
 │   └── rag/                         # RAG 索引 (ChromaDB + 研报PDF)
-├── docs/                            # 文档 + 截图
-│   ├── 01_signal_dashboard.png      # 信号看板
-│   ├── 02_market_monitor.png        # 市场监控
-│   ├── 03_factor_analysis.png       # 因子分析
-│   ├── 04_backtest.png              # 回测表现
-│   ├── 05_macro_environment.png     # 宏观环境
-│   ├── 07_trade_memory.png          # 交易记忆
-│   ├── 08_self_iteration.png        # 自我迭代
-│   └── 09_overview.png              # 系统概览
+├── docs/                            # Dashboard 各面板截图
 ├── models/                          # 训练好的模型
 │   ├── trained_model.pkl            # LightGBM 双模型 + scaler
 │   └── multi_horizon_model.pkl      # 多时域预测模型
@@ -118,18 +117,16 @@ F_Agent/
 │   ├── tick_minute_features.pkl     # tick → 分钟特征
 │   ├── macro_factors.pkl            # 宏观因子缓存
 │   ├── signal.json                  # 最新交易信号
-│   ├── signal_history.csv           # 历史信号记录
 │   ├── backtest_metrics.csv         # 回测指标
 │   ├── feature_importance.csv       # 特征重要性
 │   ├── trade_memory.jsonl           # 交易记忆 (219笔)
 │   ├── params.json                  # 信号参数配置
 │   ├── cron_jobs.json               # 定时任务配置
-│   ├── eval_report_*.md             # 模型评估报告
-│   └── iteration_report_*.json      # 自我迭代诊断报告
+│   └── eval/iteration_report_*.json # 评估/迭代诊断报告
 ├── src/                             # 源代码 (22个模块)
 │   ├── main.py                      # ★ 入口: --mode train|inference|iterate
 │   ├── dashboard_v2.py              # ★ Dashboard V2 (13-Tab)
-│   ├── signal_dashboard.py          # ★ 信号引擎 (甜点区排名信号+可视化)
+│   ├── signal_dashboard.py          # ★ 信号引擎 (甜点区排名信号)
 │   ├── self_iteration.py            # ★ 自我迭代引擎 (漂移检测+时间衰减)
 │   ├── enhanced_factors.py          # ★ 制度自适应因子 (34个新增)
 │   ├── eval_runner.py               # ★ 模型评估套件 (滚动IC+退化检测)
@@ -164,21 +161,19 @@ F_Agent/
 # 1. 安装依赖
 pip install -r requirements.txt
 
-# 2. 设置 API Key (AI情报 & RAG 问答)
-set DEEPSEEK_API_KEY=your_deepseek_api_key
+# 2. 设置 API Key (AI情报 & RAG)
+set DEEPSEEK_API_KEY=your_key
 
-# 3. 每日更新行情数据
-cd src
-python update_market_data.py
+# 3. 每日更新行情
+cd src && python update_market_data.py
 
-# 4. 启动 Dashboard (推荐)
-双击 launch_dashboard.bat
-浏览器访问: http://localhost:8503
+# 4. 启动 Dashboard
+双击 launch_dashboard.bat → http://localhost:8503
 
 # 5. CLI 工具
 python main.py --mode train       # 因子构建 + 训练 + 回测
 python main.py --mode inference   # 因子更新 + 实时信号
-python main.py --mode iterate     # 自我迭代诊断报告
+python main.py --mode iterate     # 自我迭代诊断
 python eval_runner.py             # 滚动窗口模型评估
 python factor_evaluator.py        # Alphalens风格因子评估
 python optuna_optimizer.py        # Optuna贝叶斯超参优化
@@ -192,10 +187,10 @@ python cron_scheduler.py list     # 查看定时任务
 | 参数 | 值 | 说明 |
 |------|-----|------|
 | 平滑窗口 | 60 | EMA平滑跨度 |
-| 回看区间 | 480 bar | 排名计算窗口 (~2天) |
+| 回看区间 | 480 bar | 排名计算窗口 |
 | 信号确认 | 10 bar | 连续同向才确认 |
-| 做空甜点 | rank 15%-30% | 准确率 72.7% |
-| 做多甜点 | rank 70%-85% | 准确率 63.6% |
+| 做空甜点区 | rank 15%-30% | 准确率 72.7% |
+| 做多甜点区 | rank 70%-85% | 准确率 63.6% |
 | 跳过区间 | 0-15%, 85-100% | 极端排名=噪声 |
 
 配置文件: `outputs/params.json`
@@ -217,15 +212,15 @@ python cron_scheduler.py list     # 查看定时任务
 ### Top 10 特征重要性
 
 1. `Macro_Surprise_Composite` (81.0) — 宏观综合意外
-2. `CN_US_10Y_Spread` (42.0) — 中美利差
-3. `CN_US_10Y_Spread_Z` (39.0) — 利差Z-Score
-4. `Mid_Momentum_2M` (36.0) — 中期动量
-5. `Basis_ZScore_20` (35.0) — 基差偏离
-6. `OI_Growth_20D` (35.0) — 持仓增长率 ★新增
-7. `YC_Slope_30Y_10Y` (34.0) — 超长端利差
-8. `OI_Growth_5D` (34.0) — 短期仓位 ★新增
-9. `YC_Momentum_5D` (32.0) — 收益率动量
-10. `PMI_ZScore` (32.0) — PMI 偏离
+2. `CN_US_10Y_Spread` (51.0) — 中美利差
+3. `Basis_ZScore_20` (39.0) — 基差偏离
+4. `Short_Momentum_5D` (38.0) — 短期动量
+5. `CN_US_10Y_Spread_Z` (33.0) — 利差Z-Score
+6. `Mid_Momentum_2M` (31.0) — 中期动量
+7. `Mid_Momentum_1M` (30.0) — 中期动量
+8. `YC_Slope_30Y_10Y` (29.0) — 超长端利差
+9. `YC_Curvature` (29.0) — 曲线曲率
+10. `Basis_ZScore_10` (26.0) — 短期基差
 
 ## 🧠 自我迭代引擎
 
@@ -240,10 +235,6 @@ python cron_scheduler.py list     # 查看定时任务
 - **失败模式聚类**: 识别状态/方向偏误
 - **时间衰减加权**: 借鉴Dexter，近期交易权重更高（30天/14天半衰）
 - **参数自动调优**: 基于记忆统计推荐最优阈值
-
-```bash
-python main.py --mode iterate
-```
 
 ## 📈 模型表现
 
@@ -262,12 +253,12 @@ python main.py --mode iterate
 
 | 任务 | 频率 | 功能 |
 |------|------|------|
-| 每日行情更新 | 工作日 16:00 | AKShare拉取最新分钟行情 |
-| 每日信号生成 | 工作日 16:00 | 基于最新数据生成信号 |
-| 每周模型评估 | 周五 17:00 | 滚动窗口IC评估+退化检测 |
-| 每周记忆回填 | 周五 17:00 | 同步交易记忆与实际结果 |
-| 月度重训练 | 每月1号 | 全量因子重建+窗口扫描 |
-| 月度自迭代 | 每月1号 | 运行诊断+制度漂移检测 |
+| daily_update | 工作日 16:00 | AKShare拉取最新分钟行情 |
+| daily_signal | 工作日 16:00 | 基于最新数据生成信号 |
+| weekly_eval | 周五 17:00 | 滚动窗口IC评估+退化检测 |
+| weekly_memory | 周五 17:00 | 同步交易记忆与实际结果 |
+| monthly_retrain | 每月1号 | 全量因子重建+窗口扫描 |
+| monthly_iteration | 每月1号 | 运行诊断+制度漂移检测 |
 
 ```bash
 python cron_scheduler.py list              # 查看所有任务
@@ -277,7 +268,7 @@ python cron_scheduler.py daemon            # 后台守护进程
 
 ## 🔧 技术栈
 
-`Python 3.12` `LightGBM 4.6` `scikit-learn` `AKShare` `Streamlit 1.52` `Plotly` `DeepSeek V4` `ChromaDB` `BGE-small-zh` `sentence-transformers` `Optuna` `Bun (dexter)`
+`Python 3.12` `LightGBM 4.6` `scikit-learn` `AKShare` `Streamlit 1.52` `Plotly` `DeepSeek V4` `ChromaDB` `BGE-small-zh` `Optuna`
 
 ## 📄 免责声明
 
