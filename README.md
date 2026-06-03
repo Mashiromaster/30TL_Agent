@@ -25,28 +25,28 @@
 ## 🖼️ Dashboard 预览
 
 ### 信号看板 — 实时排名信号
-![信号看板](docs/01_signal_dashboard.png)
+![概览](docs/09_overview.png)
 
 ### 市场监控 — K线 + 市场状态
-![市场监控](docs/02_market_monitor.png)
+![迭代](docs/08_self_iteration.png)
 
-### 因子分析 + 回测表现
-| 因子分析 | 回测表现 |
-|---------|---------|
-| ![因子](docs/03_factor_analysis.png) | ![回测](docs/04_backtest.png) |
+### 因子分析
+![记忆](docs/07_trade_memory.png) 
+
+### 回测表现
+![因子](docs/03_factor_analysis.png) 
+![回测](docs/04_backtest.png) 
 
 ### 宏观环境 + 研究RAG
 | 宏观环境 | 研究RAG |
 |---------|--------|
-| ![宏观](docs/05_macro_environment.png) | ![RAG](docs/06_rag_research.png) |
+| ![宏观](docs/05_macro_environment.png) | 
 
 ### 交易记忆 + 自我迭代
 | 交易记忆 | 自我迭代 |
 |---------|--------|
-| ![记忆](docs/07_trade_memory.png) | ![迭代](docs/08_self_iteration.png) |
-
-### 系统概览
-![概览](docs/09_overview.png)
+![信号看板](docs/01_signal_dashboard.png)
+![市场监控](docs/02_market_monitor.png)
 
 ## 🏗️ 系统架构
 
