@@ -1,8 +1,15 @@
 # F_Agent — 30年期国债期货智能量化策略系统
 
-[![Python](https://img.shields.io/badge/Python-3.12-blue)](https://www.python.org/)
-[![LightGBM](https://img.shields.io/badge/LightGBM-4.6-green)](https://lightgbm.readthedocs.io/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.52-red)](https://streamlit.io/)
+[![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python)](https://www.python.org/)
+[![LightGBM](https://img.shields.io/badge/LightGBM-4.6-00B388?logo=lightgbm)](https://lightgbm.readthedocs.io/)
+[![Streamlit](https://img.shields.io/badge/Streamlit-1.52-FF4B4B?logo=streamlit)](https://streamlit.io/)
+[![Plotly](https://img.shields.io/badge/Plotly-5.0-3F4F75?logo=plotly)](https://plotly.com/)
+[![scikit--learn](https://img.shields.io/badge/scikit--learn-1.5-F7931E?logo=scikit-learn)](https://scikit-learn.org/)
+[![AKShare](https://img.shields.io/badge/AKShare-1.18-FF6F00?logo=akshare)](https://akshare.akfamily.xyz/)
+[![DeepSeek](https://img.shields.io/badge/DeepSeek-V4-4B32C3?logo=openai)](https://www.deepseek.com/)
+[![ChromaDB](https://img.shields.io/badge/ChromaDB-0.5-808080?logo=chromadb)](https://www.trychroma.com/)
+[![Optuna](https://img.shields.io/badge/Optuna-4.0-072AC8?logo=optuna)](https://optuna.org/)
+[![GitHub](https://img.shields.io/badge/GitHub-Mashiromaster-181717?logo=github)](https://github.com/Mashiromaster/30TL_Agent)
 
 基于 LightGBM 双模型的 TL（30年期国债期货）量化投机策略系统。整合量价、微观结构、基差和宏观因子，使用**甜点区排名信号**，具备**自我迭代能力的AI Agent**。
 
