@@ -104,6 +104,7 @@ def main():
         "📚 研究RAG",
         "🧠 交易记忆",
         "🔄 自我迭代",
+        "📋 模型评估",
     ])
 
     try:
@@ -121,6 +122,7 @@ def main():
     with tabs[6]: render_rag_v2(ctx)
     with tabs[7]: render_memory_v2(ctx)
     with tabs[8]: render_iteration(ctx)
+    with tabs[9]: render_eval_tab(ctx)
 
 
 # ================================================================
@@ -568,6 +570,63 @@ def render_macro_from_v1(ctx):
 def render_intelligence_from_v1(ctx):
     from dashboard import render_intelligence_tab
     render_intelligence_tab(ctx)
+
+
+# ================================================================
+# Tab 10: 模型评估 (借鉴 Dexter eval)
+# ================================================================
+def render_eval_tab(ctx):
+    st.subheader("📋 模型评估 (借鉴 Dexter eval system)")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        window = st.selectbox("评估窗口", [7, 14, 30, 60], index=2, key="eval_window")
+    with col2:
+        step = st.selectbox("步长", [5, 10, 15, 30], index=1, key="eval_step")
+    with col3:
+        if st.button("🔍 运行评估", width='stretch', key="run_eval"):
+            with st.spinner("运行评估中..."):
+                import subprocess, sys
+                result = subprocess.run(
+                    [sys.executable, "eval_runner.py", "--window", str(window), "--step", str(step)],
+                    cwd=os.path.join(BASE_DIR, "src"),
+                    capture_output=True, text=True, timeout=120
+                )
+            st.session_state['eval_output'] = result.stdout
+
+    if 'eval_output' in st.session_state:
+        st.divider()
+        st.code(st.session_state['eval_output'], language='text')
+
+    # Quick IC check from predictions
+    st.divider()
+    st.markdown("**快速IC检查**")
+    pred_path = os.path.join(BASE_DIR, "outputs", "df_predictions.pkl")
+    if os.path.exists(pred_path):
+        df = pd.read_pickle(pred_path)
+        if 'Target_Ret' in df.columns and 'Pred_Ret' in df.columns:
+            mask = df['Target_Ret'].notna() & df['Pred_Ret'].notna()
+            if mask.sum() > 100:
+                ic = np.corrcoef(df.loc[mask, 'Pred_Ret'], df.loc[mask, 'Target_Ret'])[0, 1]
+                st.metric("当前整体IC", f"{ic:.4f}")
+
+                # Daily IC trend
+                df['trade_date'] = pd.to_datetime(df['date']).dt.date
+                daily = df.groupby('trade_date').agg({'Pred_Ret': 'mean', 'Target_Ret': 'sum'}).dropna()
+                if len(daily) > 30:
+                    rolling_ic = daily['Pred_Ret'].rolling(30).corr(daily['Target_Ret']).dropna()
+                    if len(rolling_ic) > 0:
+                        fig = go.Figure()
+                        fig.add_trace(go.Scatter(
+                            x=rolling_ic.index, y=rolling_ic.values,
+                            mode='lines', name='30天滚动IC',
+                            line=dict(color='#FFB74D', width=2),
+                        ))
+                        fig.add_hline(y=0, line_dash="dot", line_color="gray")
+                        fig.add_hline(y=0.03, line_dash="dash", line_color="green", opacity=0.3)
+                        fig.update_layout(height=300, margin=dict(l=10, r=10, t=10, b=10),
+                                         template='plotly_dark')
+                        st.plotly_chart(fig, width='stretch')
 
 
 if __name__ == '__main__':

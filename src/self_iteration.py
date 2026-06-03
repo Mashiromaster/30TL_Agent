@@ -175,6 +175,32 @@ class SelfIterationEngine:
         self.monitor = PerformanceMonitor(window_days=30)
         self.analyzer = FailurePatternAnalyzer()
 
+    # --- 时间衰减权重 (借鉴 Dexter temporal-decay) ---
+    @staticmethod
+    def temporal_weight(record, half_life_days=30, now=None):
+        """对交易记忆应用指数时间衰减 — 近期记录权重更高"""
+        if now is None:
+            now = datetime.now()
+        try:
+            dt = datetime.strptime(record.get('trade_dt', ''), '%Y-%m-%d')
+        except ValueError:
+            return 1.0  # 无法解析日期，给满权重
+        age_days = (now - dt).days
+        if age_days <= 0:
+            return 1.0
+        # 指数衰减: weight = exp(-ln(2) * age / half_life)
+        return np.exp(-np.log(2) * age_days / half_life_days)
+
+    def weighted_accuracy(self, records, half_life_days=30):
+        """计算时间衰减加权准确率"""
+        evaluated = [r for r in records if r.get('is_correct') is not None]
+        if not evaluated:
+            return 0.5, 0
+        weights = [self.temporal_weight(r, half_life_days) for r in evaluated]
+        correct = [1.0 if r['is_correct'] else 0.0 for r in evaluated]
+        weighted_acc = sum(c * w for c, w in zip(correct, weights)) / sum(weights)
+        return round(weighted_acc, 4), len(evaluated)
+
     def load_memory(self):
         """加载交易记忆"""
         memory_path = os.path.join(self.base_dir, "outputs/trade_memory.jsonl")
@@ -253,13 +279,20 @@ class SelfIterationEngine:
                     'detail': p.get('suggestion', ''),
                 })
 
-        # 3. 记忆统计
+        # 3. 记忆统计 (含时间衰减加权)
         evaluated = [r for r in records if r.get('is_correct') is not None]
         if evaluated:
             correct = sum(1 for r in evaluated if r['is_correct'])
             report['performance']['memory_accuracy'] = round(correct / len(evaluated), 4)
             report['performance']['total_records'] = len(records)
             report['performance']['evaluated_records'] = len(evaluated)
+
+            # 时间衰减加权准确率 (借鉴 Dexter temporal-decay)
+            w_acc, _ = self.weighted_accuracy(records, half_life_days=30)
+            report['performance']['weighted_accuracy_30d'] = w_acc
+
+            w_acc_14, _ = self.weighted_accuracy(records, half_life_days=14)
+            report['performance']['weighted_accuracy_14d'] = w_acc_14
 
             # 准确率趋势 (最近20 vs 全部)
             recent_20 = evaluated[-20:]
