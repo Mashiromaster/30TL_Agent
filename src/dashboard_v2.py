@@ -98,6 +98,7 @@ def main():
         "📡 信号看板",
         "📊 市场监控",
         "🔬 因子分析",
+        "🔍 因子评估",
         "💰 回测表现",
         "🌍 宏观环境",
         "🤖 AI情报",
@@ -105,6 +106,8 @@ def main():
         "🧠 交易记忆",
         "🔄 自我迭代",
         "📋 模型评估",
+        "⚙️ 超参优化",
+        "⏰ 定时调度",
     ])
 
     try:
@@ -116,13 +119,16 @@ def main():
     with tabs[0]: render_signal_v2(ctx)
     with tabs[1]: render_market_from_v1(ctx)
     with tabs[2]: render_factor_from_v1(ctx)
-    with tabs[3]: render_backtest_from_v1(ctx)
-    with tabs[4]: render_macro_from_v1(ctx)
-    with tabs[5]: render_intelligence_from_v1(ctx)
-    with tabs[6]: render_rag_v2(ctx)
-    with tabs[7]: render_memory_v2(ctx)
-    with tabs[8]: render_iteration(ctx)
-    with tabs[9]: render_eval_tab(ctx)
+    with tabs[3]: render_factor_eval(ctx)
+    with tabs[4]: render_backtest_from_v1(ctx)
+    with tabs[5]: render_macro_from_v1(ctx)
+    with tabs[6]: render_intelligence_from_v1(ctx)
+    with tabs[7]: render_rag_v2(ctx)
+    with tabs[8]: render_memory_v2(ctx)
+    with tabs[9]: render_iteration(ctx)
+    with tabs[10]: render_eval_tab(ctx)
+    with tabs[11]: render_hyperopt_tab(ctx)
+    with tabs[12]: render_cron_tab(ctx)
 
 
 # ================================================================
@@ -627,6 +633,259 @@ def render_eval_tab(ctx):
                         fig.update_layout(height=300, margin=dict(l=10, r=10, t=10, b=10),
                                          template='plotly_dark')
                         st.plotly_chart(fig, width='stretch')
+
+
+# ================================================================
+# Tab: 因子评估 (Alphalens风格)
+# ================================================================
+def render_factor_eval(ctx):
+    st.subheader("🔍 因子评估 (Alphalens 风格)")
+
+    imp_path = os.path.join(BASE_DIR, "outputs", "feature_importance.csv")
+    factor_path = os.path.join(BASE_DIR, "outputs", "df_factors.pkl")
+
+    if not os.path.exists(factor_path):
+        st.warning("无因子数据")
+        return
+
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        top_n = st.slider("评估Top N因子", 5, 40, 10, key="feval_topn")
+    with col2:
+        if st.button("🔍 快速IC评估", width='stretch', key="feval_run"):
+            with st.spinner(f"评估Top {top_n}个因子..."):
+                df = pd.read_pickle(factor_path)
+                df['next_close'] = df['close'].shift(-1)
+                df['future_close'] = df['close'].shift(-31)
+                df['Target_Ret'] = (df['future_close'] / df['next_close'] - 1) * 100
+
+                # Use feature importance to pick top factors
+                if os.path.exists(imp_path):
+                    imp = pd.read_csv(imp_path)
+                    candidates = imp[imp['importance'] > 0].head(top_n)['feature'].tolist()
+                else:
+                    exclude = {'date','trade_dt','ticker','close','open','high','low',
+                              'volume','money','oi','time','next_close','future_close',
+                              'Target_Ret','Hour','Minute','Minute_of_Day'}
+                    candidates = [c for c in df.columns if c not in exclude][:top_n]
+
+                from scipy import stats as sp_stats
+                scores = []
+                for col in candidates:
+                    if col not in df.columns: continue
+                    s = df[col].shift(1)
+                    t = df['Target_Ret']
+                    mask = s.notna() & t.notna()
+                    if mask.sum() < 100: continue
+                    try:
+                        ic = sp_stats.spearmanr(s[mask].astype(float), t[mask].astype(float))[0]
+                        if np.isnan(ic): ic = 0.0
+                        # Quantile long-short
+                        q = pd.qcut(s[mask], 5, labels=False, duplicates='drop')
+                        ls_ret = t[mask].groupby(q).mean()
+                        ls = ls_ret.iloc[-1] - ls_ret.iloc[0] if len(ls_ret) >= 2 else 0
+                        # Stability
+                        ac1 = s.dropna().autocorr(lag=1)
+                        scores.append({'factor': col, 'ic': round(ic,4),
+                                      'long_short': round(ls,6), 'stability': round(ac1 if not np.isnan(ac1) else 0, 3)})
+                    except: pass
+
+                st.session_state['feval_scores'] = pd.DataFrame(scores).sort_values('ic', key=abs, ascending=False)
+
+    if 'feval_scores' in st.session_state:
+        df_scores = st.session_state['feval_scores']
+        st.divider()
+
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.markdown("**|IC| 排名**")
+            fig = px.bar(df_scores.head(15).iloc[::-1], x='ic', y='factor', orientation='h',
+                         color='ic', color_continuous_scale='RdBu', color_continuous_midpoint=0)
+            fig.update_layout(height=400, margin=dict(l=10,r=10,t=10,b=10))
+            st.plotly_chart(fig, width='stretch')
+
+        with col_b:
+            st.markdown("**因子稳定性 (AC1)**")
+            fig = px.scatter(df_scores.head(15), x='stability', y='ic', text='factor',
+                            color='ic', color_continuous_scale='RdBu', color_continuous_midpoint=0)
+            fig.add_hline(y=0, line_dash="dot", line_color="gray")
+            fig.add_vline(x=0.5, line_dash="dash", line_color="green", opacity=0.3)
+            fig.update_layout(height=400, margin=dict(l=10,r=10,t=10,b=10))
+            fig.update_traces(textposition='top center', textfont=dict(size=9))
+            st.plotly_chart(fig, width='stretch')
+
+        st.markdown("**详细数据**")
+        st.dataframe(df_scores.head(20).style.format({'ic': '{:.4f}', 'long_short': '{:.6f}', 'stability': '{:.3f}'}),
+                    hide_index=True, width='stretch')
+
+        # Redundancy check
+        if len(df_scores) >= 8:
+            st.divider()
+            st.markdown("**因子相关性 (Top8)**")
+            df = pd.read_pickle(factor_path)
+            top8 = df_scores.head(8)['factor'].tolist()
+            corr = df[top8].corr(method='spearman')
+            fig = px.imshow(corr, text_auto='.2f', color_continuous_scale='RdBu_r',
+                           zmin=-1, zmax=1, aspect='auto')
+            fig.update_layout(height=400)
+            st.plotly_chart(fig, width='stretch')
+
+
+# ================================================================
+# Tab: 超参优化 (Optuna + Ensemble)
+# ================================================================
+def render_hyperopt_tab(ctx):
+    st.subheader("⚙️ 超参数优化 (Optuna + 集成)")
+
+    st.markdown("""
+    **Optuna 贝叶斯超参搜索** 可用于自动寻找最优 LightGBM 参数，
+    替代手动窗口扫描。同时也支持 **多模型集成** (LightGBM + XGBoost + CatBoost)
+    和 **多时域堆叠** (30/60/120min) 预测。
+    """)
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        trials = st.slider("Optuna Trials", 10, 100, 30, 10, key="hyper_trials")
+    with col2:
+        mode = st.selectbox("优化模式", ["optuna", "ensemble", "multihorizon", "all"],
+                           key="hyper_mode")
+    with col3:
+        if st.button("🚀 运行优化", width='stretch', type="primary", key="hyper_run"):
+            with st.spinner(f"运行中 ({mode}, {trials} trials)..."):
+                import subprocess, sys
+                result = subprocess.run(
+                    [sys.executable, "optuna_optimizer.py", "--mode", mode, "--trials", str(trials)],
+                    cwd=os.path.join(BASE_DIR, "src"),
+                    capture_output=True, text=True, timeout=600
+                )
+            st.session_state['hyper_output'] = result.stdout
+            if result.returncode != 0:
+                st.session_state['hyper_error'] = result.stderr
+
+    if 'hyper_output' in st.session_state:
+        st.divider()
+        st.markdown("**优化输出**")
+        st.code(st.session_state['hyper_output'][-3000:], language='text')
+    if 'hyper_error' in st.session_state:
+        st.error(st.session_state['hyper_error'][:500])
+
+    # Show current model params
+    st.divider()
+    model_path = os.path.join(BASE_DIR, "models", "trained_model.pkl")
+    if os.path.exists(model_path):
+        with open(model_path, 'rb') as f:
+            m = pickle.load(f)
+        st.markdown("**当前模型**")
+        st.json({
+            'config': m.get('config', 'unknown'),
+            'features': len(m.get('features', [])),
+            'has_xgb': 'model_xgb' in m,
+            'has_weights': 'weights' in m,
+        })
+
+    # Multi-horizon model status
+    mh_path = os.path.join(BASE_DIR, "models", "multi_horizon_model.pkl")
+    if os.path.exists(mh_path):
+        with open(mh_path, 'rb') as f:
+            mh = pickle.load(f)
+        st.markdown("**多时域模型**")
+        for h, r in mh.get('results', {}).items():
+            st.metric(f"{h}min", f"IC={r['ic']:.4f}")
+
+
+# ================================================================
+# Tab: 定时调度 (Cron Scheduler)
+# ================================================================
+def render_cron_tab(ctx):
+    st.subheader("⏰ 定时任务调度")
+
+    cron_path = os.path.join(BASE_DIR, "outputs", "cron_jobs.json")
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if st.button("📋 刷新任务列表", width='stretch', key="cron_refresh"):
+            st.cache_data.clear()
+            st.rerun()
+
+    with col2:
+        if st.button("▶️ 运行全部任务", width='stretch', key="cron_runall"):
+            with st.spinner("运行中..."):
+                import subprocess, sys
+                result = subprocess.run(
+                    [sys.executable, "cron_scheduler.py", "run-all"],
+                    cwd=os.path.join(BASE_DIR, "src"),
+                    capture_output=True, text=True, timeout=600
+                )
+            st.session_state['cron_all_output'] = result.stdout
+
+    with col3:
+        daemon_running = False
+        try:
+            import subprocess
+            check = subprocess.run(['tasklist', '/FI', 'IMAGENAME eq python.exe'], 
+                                   capture_output=True, text=True, timeout=5)
+            daemon_running = 'cron_scheduler' in check.stdout
+        except: pass
+        st.metric("守护进程", "🟢 运行中" if daemon_running else "⚪ 未运行")
+
+    # Job list
+    if os.path.exists(cron_path):
+        with open(cron_path, 'r', encoding='utf-8') as f:
+            jobs = json.load(f)
+    else:
+        jobs = [
+            {"id": "daily_update", "name": "每日行情更新", "kind": "cron", "expr": "0 16 * * 1-5", "enabled": True, "command": "update"},
+            {"id": "daily_signal", "name": "每日信号生成", "kind": "cron", "expr": "0 16 * * 1-5", "enabled": True, "command": "inference"},
+            {"id": "weekly_eval", "name": "每周模型评估", "kind": "cron", "expr": "0 17 * * 5", "enabled": True, "command": "eval"},
+            {"id": "weekly_memory", "name": "每周记忆回填", "kind": "cron", "expr": "0 17 * * 5", "enabled": True, "command": "memory"},
+            {"id": "monthly_retrain", "name": "月度重训练", "kind": "cron", "expr": "0 9 1 * *", "enabled": True, "command": "retrain"},
+            {"id": "monthly_iteration", "name": "月度自迭代", "kind": "cron", "expr": "0 10 1 * *", "enabled": True, "command": "iterate"},
+        ]
+
+    st.divider()
+    st.markdown("**任务列表**")
+
+    for j in jobs:
+        status_icon = "✅" if j.get('enabled', True) else "⏸️"
+        last_run = j.get('last_run', '从未运行')
+        last_error = j.get('last_error', '')
+
+        col_j1, col_j2, col_j3 = st.columns([3, 1, 1])
+        with col_j1:
+            st.markdown(f"{status_icon} **{j['name']}** — `{j['kind']} {j.get('expr','')}`  "
+                       f"_上次: {last_run[:16]}_")
+            if last_error:
+                st.caption(f"⚠️ {last_error[:100]}")
+        with col_j2:
+            if st.button("▶ 运行", key=f"cron_run_{j['id']}"):
+                with st.spinner(f"执行 {j['name']}..."):
+                    import subprocess, sys
+                    result = subprocess.run(
+                        [sys.executable, "cron_scheduler.py", "run", j['id']],
+                        cwd=os.path.join(BASE_DIR, "src"),
+                        capture_output=True, text=True, timeout=300
+                    )
+                job_key = 'cron_' + j['id'] + '_output'
+                st.session_state[job_key] = result.stdout
+                st.rerun()
+        with col_j3:
+            new_state = not j.get('enabled', True)
+            if st.button("⏸ 暂停" if j.get('enabled', True) else "▶ 启用", key=f"cron_toggle_{j['id']}"):
+                j['enabled'] = new_state
+                with open(cron_path, 'w', encoding='utf-8') as f:
+                    json.dump(jobs, f, ensure_ascii=False, indent=2)
+                st.rerun()
+
+        # Show per-job output
+        output_key = f'cron_{j["id"]}_output'
+        if output_key in st.session_state:
+            with st.expander(f"输出: {j['name']}", expanded=False):
+                st.code(st.session_state[output_key][-1000:], language='text')
+
+    if 'cron_all_output' in st.session_state:
+        st.divider()
+        st.markdown("**全量运行输出**")
+        st.code(st.session_state['cron_all_output'][-2000:], language='text')
 
 
 if __name__ == '__main__':
