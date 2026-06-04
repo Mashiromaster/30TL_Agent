@@ -11,14 +11,10 @@ import time
 from datetime import datetime
 
 # ═══ Windows Streamlit (MSYS/git-bash) 全局修复 ═══
-# stdout/stderr 可能指向不可写 pipe handle (非 console handle) → OSError(22)。
-# 模块加载时立即检测并重定向到内存 StringIO，之后所有 print() 都安全。
+# stdout/stderr 指向 pipe handle → 无条件重定向到 StringIO
 if sys.platform == 'win32':
-    for _fd, _name in [(1, 'stdout'), (2, 'stderr')]:
-        try:
-            os.write(_fd, b'')
-        except OSError:
-            setattr(sys, _name, io.StringIO())
+    sys.stdout = io.StringIO()
+    sys.stderr = io.StringIO()
 
 def _log(*args, **kwargs):
     print(*args, **kwargs)

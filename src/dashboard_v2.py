@@ -17,15 +17,12 @@ import pickle
 import subprocess
 from datetime import datetime
 
-# ═══ Windows Streamlit (MSYS/git-bash) 全局修复：stdout/stderr → 内存 ═══
-# 必须在导入内部模块之前执行，确保 sentence_transformers / ChromaDB / openai
-# 等第三方库内部的所有 print() 都不会触发 OSError(22)。
+# ═══ Windows Streamlit (MSYS/git-bash) 全局修复：stdout/stderr → StringIO ═══
+# 必须在所有 import 之前执行。os.write(b'') 在 pipe 上不报错，
+# 所以无条件重定向——Streamlit 自身不依赖 stdout 来捕获日志。
 if sys.platform == 'win32':
-    for _fd, _name in [(1, 'stdout'), (2, 'stderr')]:
-        try:
-            os.write(_fd, b'')
-        except OSError:
-            setattr(sys, _name, io.StringIO())
+    sys.stdout = io.StringIO()
+    sys.stderr = io.StringIO()
 
 sys.path.insert(0, os.path.dirname(__file__))
 from strategy_agent import StrategyContext
