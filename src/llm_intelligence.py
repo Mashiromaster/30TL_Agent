@@ -1,12 +1,18 @@
 # -*- coding: utf-8 -*-
 # llm_intelligence.py — LLM-powered market intelligence for TL strategy
 
+import sys
 import pandas as pd
 import numpy as np
 import os
 import json
 import time
 from datetime import datetime
+
+
+# Windows Streamlit兼容: stdout 在 MSYS/git-bash 下可能失效，改用 stderr
+def _log(*args, **kwargs):
+    print(*args, file=sys.stderr, **kwargs)
 
 
 # ============================================================
@@ -42,7 +48,7 @@ class NewsDataFetcher:
     def _fetch_with_cache(self, cache_name, fetch_func):
         cache_path = os.path.join(self.cache_dir, f"{cache_name}.pkl")
         if os.path.exists(cache_path):
-            print(f"  [NewsFetcher] Loaded cached: {cache_name}")
+            _log(f"  [NewsFetcher] Loaded cached: {cache_name}")
             return pd.read_pickle(cache_path)
 
         try:
@@ -50,12 +56,12 @@ class NewsDataFetcher:
             df = fetch_func()
             if df is not None and len(df) > 0:
                 df.to_pickle(cache_path)
-                print(f"  [NewsFetcher] Fetched & cached: {cache_name} ({len(df)} rows)")
+                _log(f"  [NewsFetcher] Fetched & cached: {cache_name} ({len(df)} rows)")
             else:
-                print(f"  [NewsFetcher] Empty result: {cache_name}")
+                _log(f"  [NewsFetcher] Empty result: {cache_name}")
             return df
         except Exception as e:
-            print(f"  [NewsFetcher] Failed to fetch {cache_name}: {e}")
+            _log(f"  [NewsFetcher] Failed to fetch {cache_name}: {e}")
             return pd.DataFrame()
 
     def fetch_eastmoney_news(self):
@@ -99,8 +105,8 @@ class NewsDataFetcher:
 
     def fetch_all(self):
         """Fetch all news sources. Returns dict of {name: DataFrame}."""
-        print(f"[NewsFetcher] Fetching bond market news...")
-        print(f"[NewsFetcher] Cache directory: {self.cache_dir}")
+        _log(f"[NewsFetcher] Fetching bond market news...")
+        _log(f"[NewsFetcher] Cache directory: {self.cache_dir}")
 
         data = {}
         sources = [
@@ -108,16 +114,16 @@ class NewsDataFetcher:
         ]
 
         for name, func in sources:
-            print(f"\n[NewsFetcher] === {name} ===")
+            _log(f"\n[NewsFetcher] === {name} ===")
             df = func()
             if df is not None and len(df) > 0:
                 data[name] = df
             else:
                 data[name] = pd.DataFrame()
-                print(f"  [NewsFetcher] {name}: no data")
+                _log(f"  [NewsFetcher] {name}: no data")
 
         success = sum(1 for v in data.values() if len(v) > 0)
-        print(f"\n[NewsFetcher] Complete: {success}/{len(sources)} sources fetched")
+        _log(f"\n[NewsFetcher] Complete: {success}/{len(sources)} sources fetched")
         return data
 
 
@@ -260,7 +266,7 @@ class LLMAnalyzer:
 
             return "\n".join(lines)
         except Exception as e:
-            print(f"[LLMAnalyzer] News fetch failed: {e}")
+            _log(f"[LLMAnalyzer] News fetch failed: {e}")
             return "（新闻数据获取失败）"
 
     def generate_intelligence_report(self, save=True):
@@ -271,10 +277,10 @@ class LLMAnalyzer:
             return self._fallback_report("未设置 DEEPSEEK_API_KEY 环境变量")
 
         # 1. Build context
-        print("[LLMAnalyzer] 构建量化数据上下文...")
+        _log("[LLMAnalyzer] 构建量化数据上下文...")
         quant_context = self._build_quantitative_context()
 
-        print("[LLMAnalyzer] 获取市场新闻...")
+        _log("[LLMAnalyzer] 获取市场新闻...")
         news_context = self._fetch_news_context()
 
         # 2. Build prompts
@@ -289,7 +295,7 @@ class LLMAnalyzer:
 请基于以上数据，生成今日TL国债期货市场情报分析报告。"""
 
         # 3. Call DeepSeek
-        print(f"[LLMAnalyzer] 调用 DeepSeek ({self.model})...")
+        _log(f"[LLMAnalyzer] 调用 DeepSeek ({self.model})...")
         try:
             from openai import OpenAI
             client = OpenAI(
@@ -306,10 +312,10 @@ class LLMAnalyzer:
                 temperature=0.3,
             )
             report = response.choices[0].message.content
-            print(f"[LLMAnalyzer] DeepSeek 响应: {len(report)} 字符")
+            _log(f"[LLMAnalyzer] DeepSeek 响应: {len(report)} 字符")
 
         except Exception as e:
-            print(f"[LLMAnalyzer] DeepSeek API 调用失败: {e}")
+            _log(f"[LLMAnalyzer] DeepSeek API 调用失败: {e}")
             return self._fallback_report(f"API 调用失败: {e}")
 
         # 4. Format output
@@ -372,7 +378,7 @@ class LLMAnalyzer:
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(record, f, ensure_ascii=False, indent=2)
 
-        print(f"[LLMAnalyzer] 报告已保存: {output_path}")
+        _log(f"[LLMAnalyzer] 报告已保存: {output_path}")
 
     def _data_timestamp(self):
         """Get the latest data timestamp for display."""
@@ -443,7 +449,6 @@ class LLMAnalyzer:
 # Standalone test
 # ============================================================
 if __name__ == '__main__':
-    import sys
     sys.path.insert(0, os.path.dirname(__file__))
     from strategy_agent import StrategyContext
 
@@ -451,4 +456,4 @@ if __name__ == '__main__':
     ctx = StrategyContext(base_dir)
 
     llm = LLMAnalyzer(ctx)
-    print(llm.generate_intelligence_report(save=True))
+    _log(llm.generate_intelligence_report(save=True))
