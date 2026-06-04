@@ -1081,14 +1081,21 @@ def render_intelligence_tab(ctx):
     # Check API key
     api_key = os.environ.get("DEEPSEEK_API_KEY", "")
     if not api_key:
-        st.error("""
-        **未设置 `DEEPSEEK_API_KEY` 环境变量**
+        st.warning("""
+        **未设置 DeepSeek API Key**
 
-        **设置方法：**
-        ```bash
-        set DEEPSEEK_API_KEY=sk-your-key-here
-        ```
-        或在系统环境变量中添加后重启 Dashboard。
+        **三种配置方式（任选其一）：**
+
+        1. **侧边栏输入**（推荐，即时生效）
+           在左侧 "🔑 API Key" 输入框中粘贴你的 key
+
+        2. **`.env` 文件**（持久化）
+           在 `F_Agent/.env` 中写入: `DEEPSEEK_API_KEY=sk-...`
+
+        3. **系统环境变量**
+           ```bash
+           set DEEPSEEK_API_KEY=sk-...
+           ```
         """)
         return
 

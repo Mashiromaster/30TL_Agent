@@ -33,6 +33,46 @@ st.set_page_config(
 BASE_DIR = r"D:\桌面\F_Agent"
 
 
+# ═══════════════════════════════════════════════════════════════
+# API Key 管理 — .env 文件 → 环境变量 → 侧边栏输入
+# ═══════════════════════════════════════════════════════════════
+
+def _load_dotenv(base_dir: str) -> dict:
+    """从 .env 文件加载键值对（不依赖 python-dotenv）"""
+    env_path = os.path.join(base_dir, ".env")
+    env_vars = {}
+    if os.path.exists(env_path):
+        try:
+            with open(env_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('#'):
+                        continue
+                    if '=' in line:
+                        key, _, value = line.partition('=')
+                        key = key.strip()
+                        value = value.strip().strip('"').strip("'")
+                        if key and value:
+                            env_vars[key] = value
+        except Exception:
+            pass
+    return env_vars
+
+
+def _inject_api_key(key: str):
+    """将 API key 注入 os.environ，所有下游模块自动识别"""
+    if key:
+        os.environ["DEEPSEEK_API_KEY"] = key
+    else:
+        os.environ.pop("DEEPSEEK_API_KEY", None)
+
+
+# 启动时按优先级加载: .env > 系统环境变量
+_dotenv_vars = _load_dotenv(BASE_DIR)
+if "DEEPSEEK_API_KEY" in _dotenv_vars and not os.environ.get("DEEPSEEK_API_KEY"):
+    _inject_api_key(_dotenv_vars["DEEPSEEK_API_KEY"])
+
+
 @st.cache_data(ttl=300, show_spinner="加载数据中...")
 def load_ctx():
     return StrategyContext(BASE_DIR)
@@ -60,6 +100,39 @@ def main():
     # Sidebar
     with st.sidebar:
         st.header("⚙️ 控制面板")
+
+        # ─── API Key ───
+        st.subheader("🔑 API Key")
+        current_key = os.environ.get("DEEPSEEK_API_KEY", "")
+        key_status = "green" if current_key else "gray"
+
+        # Initialize session state for the key input
+        if "api_key_input" not in st.session_state:
+            st.session_state["api_key_input"] = current_key
+
+        entered_key = st.text_input(
+            "DeepSeek API Key",
+            value=st.session_state["api_key_input"],
+            type="password",
+            placeholder="sk-...",
+            help="DeepSeek API Key，仅用于AI情报/RAG/记忆反思",
+            key="sidebar_api_key",
+        )
+
+        if entered_key != st.session_state["api_key_input"]:
+            st.session_state["api_key_input"] = entered_key
+            _inject_api_key(entered_key)
+            st.rerun()
+
+        if not current_key:
+            st.caption(":gray[未设置 — AI情报/RAG/反思功能不可用]")
+            st.caption("配置方式: `.env` 文件 / 系统环境变量 / 上方输入框")
+        else:
+            masked = current_key[:7] + "..." + current_key[-4:] if len(current_key) > 11 else "***"
+            st.caption(f":green[已配置: {masked}]")
+
+        st.divider()
+
         if st.button("🔄 刷新全部数据", width='stretch'):
             st.cache_data.clear()
             st.rerun()

@@ -233,7 +233,14 @@ pip install -r requirements.txt
 pip install torch --index-url https://download.pytorch.org/whl/cpu  # CNN模块需要
 
 # 2. 设置 API Key (AI情报 & RAG)
-set DEEPSEEK_API_KEY=your_key
+# 方法一：在项目根目录创建 .env 文件（推荐，自动加载）
+echo DEEPSEEK_API_KEY=***  F_Agent/.env
+
+# 方法二：Dashboard 侧边栏直接输入（即时生效）
+# 启动 Dashboard 后在左侧 "🔑 API Key" 输入框粘贴 key
+
+# 方法三：系统环境变量
+set DEEPSEEK_API_KEY=***
 
 # 3. 每日更新行情
 cd src && python update_market_data.py
