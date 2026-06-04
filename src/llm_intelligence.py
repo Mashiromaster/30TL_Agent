@@ -2,23 +2,26 @@
 # llm_intelligence.py — LLM-powered market intelligence for TL strategy
 
 import sys
+import io
+import os
 import pandas as pd
 import numpy as np
-import os
 import json
 import time
 from datetime import datetime
 
+# ═══ Windows Streamlit (MSYS/git-bash) 全局修复 ═══
+# stdout/stderr 可能指向不可写 pipe handle (非 console handle) → OSError(22)。
+# 模块加载时立即检测并重定向到内存 StringIO，之后所有 print() 都安全。
+if sys.platform == 'win32':
+    for _fd, _name in [(1, 'stdout'), (2, 'stderr')]:
+        try:
+            os.write(_fd, b'')
+        except OSError:
+            setattr(sys, _name, io.StringIO())
 
-# Windows Streamlit (git-bash/msys): stdout & stderr 可能指向不可写 fd。
-# _log 改用 os.write(2, ...) 直接写文件号 2 (stderr)，绕过 Python I/O 层。
-# 如果连这都失败，静默丢弃——不影响主流程。
 def _log(*args, **kwargs):
-    try:
-        msg = ' '.join(str(a) for a in args) + '\n'
-        os.write(2, msg.encode('utf-8', errors='replace'))
-    except Exception:
-        pass  # stderr 不可写时静默丢弃
+    print(*args, **kwargs)
 
 
 # ============================================================

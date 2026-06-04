@@ -10,7 +10,16 @@ import plotly.express as px
 from plotly.subplots import make_subplots
 import os
 import sys
+import io
 import json
+
+# ═══ Windows Streamlit 全局修复: stdout/stderr → StringIO ═══
+if sys.platform == 'win32':
+    for _fd, _name in [(1, 'stdout'), (2, 'stderr')]:
+        try:
+            os.write(_fd, b'')
+        except OSError:
+            setattr(sys, _name, io.StringIO())
 
 sys.path.insert(0, os.path.dirname(__file__))
 from strategy_agent import StrategyContext

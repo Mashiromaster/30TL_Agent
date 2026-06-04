@@ -9,6 +9,8 @@
 #   5. 本地 agentic_rag 目录下的 PDF/文本资料 — 多级索引
 
 import os
+import sys
+import io
 import re
 import json
 import time
@@ -19,13 +21,21 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 
-# Windows Streamlit兼容 — 绕过 Python I/O 层直接写 stderr
+# ═══ Windows Streamlit (MSYS/git-bash) 全局修复 ═══
+# 问题: MSYS 伪终端给子进程传的 stdout/stderr handle 是 pipe，但 Python 的
+# TextIOWrapper/WriteConsoleW 期望 console handle → OSError(22)。不仅是我们的
+# print()，sentence_transformers、ChromaDB 等第三方库内部的 print/logging 也会炸。
+# 解决: 模块加载时立即检测，若 stdout/stderr 不可写则重定向到内存 buffer。
+if sys.platform == 'win32':
+    for _fd, _name in [(1, 'stdout'), (2, 'stderr')]:
+        try:
+            os.write(_fd, b'')
+        except OSError:
+            setattr(sys, _name, io.StringIO())
+
+# _log 现在安全调用 print()（stdout/stderr 已被重定向到 StringIO）
 def _log(*args, **kwargs):
-    try:
-        msg = ' '.join(str(a) for a in args) + '\n'
-        os.write(2, msg.encode('utf-8', errors='replace'))
-    except Exception:
-        pass
+    print(*args, **kwargs)
 
 
 # ============================================================
