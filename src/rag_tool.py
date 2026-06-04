@@ -19,6 +19,15 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 
+# Windows Streamlit兼容 — 绕过 Python I/O 层直接写 stderr
+def _log(*args, **kwargs):
+    try:
+        msg = ' '.join(str(a) for a in args) + '\n'
+        os.write(2, msg.encode('utf-8', errors='replace'))
+    except Exception:
+        pass
+
+
 # ============================================================
 # Document model
 # ============================================================
@@ -74,17 +83,17 @@ class ResearchCrawler:
     def _fetch_with_cache(self, cache_name, fetch_func):
         cache_path = os.path.join(self.cache_dir, f"{cache_name}.pkl")
         if os.path.exists(cache_path):
-            print(f"  [RAGCrawler] Loaded cached: {cache_name}")
+            _log(f"  [RAGCrawler] Loaded cached: {cache_name}")
             return pd.read_pickle(cache_path)
         try:
             self._rate_limit()
             result = fetch_func()
             if result is not None and len(result) > 0:
                 pd.to_pickle(result, cache_path)
-                print(f"  [RAGCrawler] Fetched & cached: {cache_name}")
+                _log(f"  [RAGCrawler] Fetched & cached: {cache_name}")
             return result
         except Exception as e:
-            print(f"  [RAGCrawler] Failed to fetch {cache_name}: {e}")
+            _log(f"  [RAGCrawler] Failed to fetch {cache_name}: {e}")
             return pd.DataFrame()
 
     def _extract_pdf_text(self, pdf_path, max_pages=None):
@@ -113,7 +122,7 @@ class ResearchCrawler:
         """Load local documents from the agentic_rag directory."""
         root_dir = os.path.join(base_dir, self.LOCAL_AGENTIC_RAG_DIR)
         if not os.path.exists(root_dir):
-            print(f"  [RAGCrawler] No local agentic_rag directory found")
+            _log(f"  [RAGCrawler] No local agentic_rag directory found")
             return pd.DataFrame()
 
         records = []
@@ -146,9 +155,9 @@ class ResearchCrawler:
                         'fetched_at': datetime.now().strftime('%Y-%m-%d'),
                     })
                 except Exception as e:
-                    print(f"  [RAGCrawler] agentic_rag file failed: {filename} -> {e}")
+                    _log(f"  [RAGCrawler] agentic_rag file failed: {filename} -> {e}")
 
-        print(f"  [RAGCrawler] agentic_rag local docs: {len(records)} parsed")
+        _log(f"  [RAGCrawler] agentic_rag local docs: {len(records)} parsed")
         return pd.DataFrame(records) if records else pd.DataFrame()
 
     def fetch_pbc_reports(self):
@@ -161,19 +170,19 @@ class ResearchCrawler:
         # Step 1: Get the report listing page (try primary + fallback URL)
         resp = None
         for url in [self.PBC_LIST_URL, self.PBC_ALT_URL]:
-            print(f"  [RAGCrawler] Trying PBC list: {url}")
+            _log(f"  [RAGCrawler] Trying PBC list: {url}")
             try:
                 self._rate_limit()
                 resp = httpx.get(url, headers=self._http_headers(), timeout=30, follow_redirects=True)
                 if resp.status_code == 200:
-                    print(f"  [RAGCrawler] Success: HTTP 200, {len(resp.text)} bytes")
+                    _log(f"  [RAGCrawler] Success: HTTP 200, {len(resp.text)} bytes")
                     break
-                print(f"  [RAGCrawler] HTTP {resp.status_code}")
+                _log(f"  [RAGCrawler] HTTP {resp.status_code}")
             except Exception as e:
-                print(f"  [RAGCrawler] Failed: {e}")
+                _log(f"  [RAGCrawler] Failed: {e}")
 
         if resp is None or resp.status_code != 200:
-            print(f"  [RAGCrawler] Could not access PBC listing page")
+            _log(f"  [RAGCrawler] Could not access PBC listing page")
             return pd.DataFrame()
 
         soup = BeautifulSoup(resp.text, 'html.parser')
@@ -192,10 +201,10 @@ class ResearchCrawler:
                 period_match = re.search(r'(20\d{2})年.*?([一二三四])季度', text)
                 period = f"{period_match.group(1)}Q{['一','二','三','四'].index(period_match.group(2))+1}" if period_match else text
                 report_links.append((period, href, text))
-                print(f"  [RAGCrawler] Found: {period} — {text[:50]}")
+                _log(f"  [RAGCrawler] Found: {period} — {text[:50]}")
 
         if not report_links:
-            print(f"  [RAGCrawler] No report links found on listing page")
+            _log(f"  [RAGCrawler] No report links found on listing page")
             return pd.DataFrame()
 
         # Step 3: Fetch each report page and extract text
@@ -206,11 +215,11 @@ class ResearchCrawler:
                     self._rate_limit()
                     resp = httpx.get(url, headers=self._http_headers(), timeout=30, follow_redirects=True)
                     if resp.status_code != 200:
-                        print(f"  [RAGCrawler] HTTP {resp.status_code} for {period}")
+                        _log(f"  [RAGCrawler] HTTP {resp.status_code} for {period}")
                         continue
                     with open(local_cache, 'w', encoding='utf-8') as f:
                         f.write(resp.text)
-                    print(f"  [RAGCrawler] Saved: pbc_mpr_{period}.html")
+                    _log(f"  [RAGCrawler] Saved: pbc_mpr_{period}.html")
 
                 # Parse stored HTML
                 with open(local_cache, 'r', encoding='utf-8') as f:
@@ -236,13 +245,13 @@ class ResearchCrawler:
                         'content': text,
                         'fetched_at': datetime.now().strftime('%Y-%m-%d'),
                     })
-                    print(f"  [RAGCrawler] Parsed {period}: {len(text)} chars")
+                    _log(f"  [RAGCrawler] Parsed {period}: {len(text)} chars")
                 else:
-                    print(f"  [RAGCrawler] {period}: insufficient content ({len(text)} chars)")
+                    _log(f"  [RAGCrawler] {period}: insufficient content ({len(text)} chars)")
             except Exception as e:
-                print(f"  [RAGCrawler] PBC report {period} failed: {e}")
+                _log(f"  [RAGCrawler] PBC report {period} failed: {e}")
 
-        print(f"  [RAGCrawler] PBC reports: {len(results)} parsed")
+        _log(f"  [RAGCrawler] PBC reports: {len(results)} parsed")
         return pd.DataFrame(results) if results else pd.DataFrame()
 
     def fetch_cffex_monthly(self, year=2025):
@@ -280,9 +289,9 @@ class ResearchCrawler:
                         'fetched_at': datetime.now().strftime('%Y-%m-%d'),
                     })
             except Exception as e:
-                print(f"  [RAGCrawler] CFFEX {yyyymm} failed: {e}")
+                _log(f"  [RAGCrawler] CFFEX {yyyymm} failed: {e}")
 
-        print(f"  [RAGCrawler] CFFEX monthly: {len(results)} parsed for {year}")
+        _log(f"  [RAGCrawler] CFFEX monthly: {len(results)} parsed for {year}")
         return pd.DataFrame(results) if results else pd.DataFrame()
 
     def fetch_sina_research(self):
@@ -334,7 +343,7 @@ class ResearchCrawler:
         local_path = os.path.join(self.cache_dir, "bond_news.pkl")
         news_path = macro_path if os.path.exists(macro_path) else local_path
         if not os.path.exists(news_path):
-            print(f"  [RAGCrawler] No local news cache found")
+            _log(f"  [RAGCrawler] No local news cache found")
             return pd.DataFrame()
 
         df = pd.read_pickle(news_path)
@@ -353,7 +362,7 @@ class ResearchCrawler:
                     'content': f"{title}\n来源: {source}\n日期: {dt}\n{content[:500]}",
                     'fetched_at': datetime.now().strftime('%Y-%m-%d'),
                 })
-        print(f"  [RAGCrawler] Local news: {len(results)} articles loaded")
+        _log(f"  [RAGCrawler] Local news: {len(results)} articles loaded")
         return pd.DataFrame(results) if results else pd.DataFrame()
 
     def build_policy_reference_docs(self):
@@ -505,14 +514,14 @@ class ResearchCrawler:
                   include_news=True, include_macro_snapshot=True, include_local_agentic=True,
                   cffex_year=2025, base_dir=None):
         """Fetch all sources. Returns list of Document objects."""
-        print(f"\n[RAGCrawler] === Fetching research documents ===")
-        print(f"[RAGCrawler] Cache directory: {self.cache_dir}")
+        _log(f"\n[RAGCrawler] === Fetching research documents ===")
+        _log(f"[RAGCrawler] Cache directory: {self.cache_dir}")
 
         all_docs = []
 
         # 1. PBC Monetary Policy Reports (may fail — gracefully handled)
         if include_pbc:
-            print(f"\n[RAGCrawler] --- PBC Monetary Policy Reports ---")
+            _log(f"\n[RAGCrawler] --- PBC Monetary Policy Reports ---")
             df = self.fetch_pbc_reports()
             for _, row in df.iterrows():
                 all_docs.append(Document(
@@ -526,14 +535,14 @@ class ResearchCrawler:
                 ))
 
         # 1b. Embedded PBC policy reference docs
-        print(f"\n[RAGCrawler] --- PBC Policy Reference Docs ---")
+        _log(f"\n[RAGCrawler] --- PBC Policy Reference Docs ---")
         ref_docs = self.build_policy_reference_docs()
         all_docs.extend(ref_docs)
-        print(f"  [RAGCrawler] Embedded {len(ref_docs)} policy reference documents")
+        _log(f"  [RAGCrawler] Embedded {len(ref_docs)} policy reference documents")
 
         # 1c. Local agentic_rag documents
         if include_local_agentic and base_dir:
-            print(f"\n[RAGCrawler] --- Local agentic_rag Documents ---")
+            _log(f"\n[RAGCrawler] --- Local agentic_rag Documents ---")
             df = self.fetch_local_agentic_rag(base_dir)
             if len(df) > 0:
                 for _, row in df.iterrows():
@@ -550,7 +559,7 @@ class ResearchCrawler:
 
         # 2. CFFEX Monthly Reports
         if include_cffex:
-            print(f"\n[RAGCrawler] --- CFFEX Monthly Reports ({cffex_year}) ---")
+            _log(f"\n[RAGCrawler] --- CFFEX Monthly Reports ({cffex_year}) ---")
             df = self.fetch_cffex_monthly(year=cffex_year)
             for _, row in df.iterrows():
                 all_docs.append(Document(
@@ -565,15 +574,15 @@ class ResearchCrawler:
 
         # 3. Macro context snapshot (from existing factor data)
         if include_macro_snapshot and base_dir:
-            print(f"\n[RAGCrawler] --- Macro Context Snapshot ---")
+            _log(f"\n[RAGCrawler] --- Macro Context Snapshot ---")
             doc = self.build_macro_context_doc(base_dir)
             if doc:
                 all_docs.append(doc)
-                print(f"  [RAGCrawler] Macro snapshot: {len(doc.content)} chars")
+                _log(f"  [RAGCrawler] Macro snapshot: {len(doc.content)} chars")
 
         # 4. Sina Research
         if include_sina:
-            print(f"\n[RAGCrawler] --- Sina Research Reports ---")
+            _log(f"\n[RAGCrawler] --- Sina Research Reports ---")
             df = self.fetch_sina_research()
             if len(df) > 0:
                 for _, row in df.iterrows():
@@ -590,7 +599,7 @@ class ResearchCrawler:
 
         # 5. Local News
         if include_news:
-            print(f"\n[RAGCrawler] --- Local Bond News ---")
+            _log(f"\n[RAGCrawler] --- Local Bond News ---")
             df = self.fetch_local_news()
             if len(df) > 0:
                 for _, row in df.iterrows():
@@ -605,7 +614,7 @@ class ResearchCrawler:
                         }
                     ))
 
-        print(f"\n[RAGCrawler] Total documents fetched: {len(all_docs)}")
+        _log(f"\n[RAGCrawler] Total documents fetched: {len(all_docs)}")
         return all_docs
 
 
@@ -669,7 +678,7 @@ class DocumentParser:
                 meta['parent_doc_id'] = parent_doc_id
                 meta['level'] = level_name
                 chunked.append(Document(content=chunk, metadata=meta))
-        print(f"[Parser] {len(documents)} docs → {len(chunked)} chunks "
+        _log(f"[Parser] {len(documents)} docs → {len(chunked)} chunks "
               f"(chunk_size={self.chunk_size}, overlap={self.chunk_overlap})")
         return chunked
 
@@ -700,7 +709,7 @@ class VectorStore:
     def embedder(self):
         if self._embedder is None:
             from sentence_transformers import SentenceTransformer
-            print(f"[VectorStore] Loading embedding model: {self.embedding_model_name}")
+            _log(f"[VectorStore] Loading embedding model: {self.embedding_model_name}")
             self._embedder = SentenceTransformer(self.embedding_model_name)
         return self._embedder
 
@@ -711,13 +720,13 @@ class VectorStore:
             self._client = chromadb.PersistentClient(path=self.persist_dir)
             try:
                 self._collection = self._client.get_collection(self.collection_name)
-                print(f"[VectorStore] Existing collection: {self._collection.count()} docs")
+                _log(f"[VectorStore] Existing collection: {self._collection.count()} docs")
             except Exception:
                 self._collection = self._client.create_collection(
                     name=self.collection_name,
                     metadata={"hnsw:space": "cosine"},
                 )
-                print(f"[VectorStore] Created new collection: {self.collection_name}")
+                _log(f"[VectorStore] Created new collection: {self.collection_name}")
         return self._collection
 
     def _embed(self, texts):
@@ -751,7 +760,7 @@ class VectorStore:
     def add_documents(self, documents, batch_size=32):
         """Add documents to the vector store after hierarchical chunking."""
         if not documents:
-            print("[VectorStore] No documents to add")
+            _log("[VectorStore] No documents to add")
             return 0
 
         overview_parser = DocumentParser(chunk_size=1500, chunk_overlap=150)
@@ -778,7 +787,7 @@ class VectorStore:
             )
             total += len(batch)
 
-        print(f"[VectorStore] Added {total} chunks (from {len(documents)} docs)")
+        _log(f"[VectorStore] Added {total} chunks (from {len(documents)} docs)")
         return total
 
     def search(self, query, top_k=8, filter_dict=None):
@@ -855,16 +864,16 @@ class RAGAnalyzer:
         """Fetch all sources and build/update the vector index."""
         stats = self.vector_store.get_stats()
         if stats['total_chunks'] > 0 and not force_refresh:
-            print(f"[RAGAnalyzer] Index exists with {stats['total_chunks']} chunks. "
+            _log(f"[RAGAnalyzer] Index exists with {stats['total_chunks']} chunks. "
                   f"Use force_refresh=True to rebuild.")
             return stats
 
-        print("[RAGAnalyzer] Building research index...")
+        _log("[RAGAnalyzer] Building research index...")
         if force_refresh:
             self.vector_store.reset()
         docs = self.crawler.fetch_all(base_dir=self.base_dir, include_local_agentic=True)
         if not docs:
-            print("[RAGAnalyzer] No documents fetched. Index build aborted.")
+            _log("[RAGAnalyzer] No documents fetched. Index build aborted.")
             return stats
 
         self.vector_store.add_documents(docs)
@@ -884,7 +893,7 @@ class RAGAnalyzer:
         # 1. Ensure index exists
         stats = self.vector_store.get_stats()
         if stats['total_chunks'] == 0:
-            print("[RAGAnalyzer] Index empty, building...")
+            _log("[RAGAnalyzer] Index empty, building...")
             self.build_index()
             stats = self.vector_store.get_stats()
             if stats['total_chunks'] == 0:
@@ -1002,7 +1011,7 @@ class RAGAnalyzer:
             )
             return response.choices[0].message.content
         except Exception as e:
-            print(f"[RAGAnalyzer] LLM call failed: {e}")
+            _log(f"[RAGAnalyzer] LLM call failed: {e}")
             return self._generate_offline(question, context, None)
 
     def _generate_offline(self, question, context, metadatas):
@@ -1075,7 +1084,7 @@ class RAGAnalyzer:
         output_path = os.path.join(output_dir, "rag_weekly_briefing.json")
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(report, f, ensure_ascii=False, indent=2)
-        print(f"[RAGAnalyzer] Weekly briefing saved: {output_path}")
+        _log(f"[RAGAnalyzer] Weekly briefing saved: {output_path}")
 
         return report
 
@@ -1110,36 +1119,36 @@ if __name__ == '__main__':
         cmd = 'status'
 
     if cmd == 'build':
-        print("\n" + "=" * 56)
-        print("  构建研究知识库索引")
-        print("=" * 56)
+        _log("\n" + "=" * 56)
+        _log("  构建研究知识库索引")
+        _log("=" * 56)
         stats = rags.build_index(force_refresh=True)
-        print(f"\n索引完成: {stats}")
+        _log(f"\n索引完成: {stats}")
 
     elif cmd == 'search':
         if len(sys.argv) > 2:
             question = ' '.join(sys.argv[2:])
         else:
             question = "当前国债期货市场的多空观点是什么？"
-        print("\n" + "=" * 56)
-        print(f"  RAG 检索: {question}")
-        print("=" * 56)
+        _log("\n" + "=" * 56)
+        _log(f"  RAG 检索: {question}")
+        _log("=" * 56)
         result = rags.query(question)
-        print(f"\n{'─' * 56}")
-        print(result['answer'])
-        print(f"\n{'─' * 56}")
-        print(f"来源 ({len(result['sources'])}):")
+        _log(f"\n{'─' * 56}")
+        _log(result['answer'])
+        _log(f"\n{'─' * 56}")
+        _log(f"来源 ({len(result['sources'])}):")
         for s in result['sources']:
-            print(f"  - [{s['source']}] {s['title']}")
-        print(f"\n索引状态: {result['stats']}")
+            _log(f"  - [{s['source']}] {s['title']}")
+        _log(f"\n索引状态: {result['stats']}")
 
     elif cmd == 'briefing':
-        print("\n" + "=" * 56)
-        print("  生成周度研究简报")
-        print("=" * 56)
+        _log("\n" + "=" * 56)
+        _log("  生成周度研究简报")
+        _log("=" * 56)
         report = rags.generate_weekly_briefing()
-        print(f"\n生成完成: {report['generated_at']}")
+        _log(f"\n生成完成: {report['generated_at']}")
 
     else:
-        print(f"Usage: python rag_tool.py [build|search <query>|briefing|status]")
-        print(f"\n{rags.get_status()}")
+        _log(f"Usage: python rag_tool.py [build|search <query>|briefing|status]")
+        _log(f"\n{rags.get_status()}")
