@@ -379,7 +379,7 @@ python cron_scheduler.py run weekly_adapt  # 手动运行
 
 ## 关键发现与经验教训
 
-### 1. 极度正则化是金融ML唯一有效策略
+### 1. 极度正则化是金融ML唯一有效策略（缺少高精度数据情况）
 金融时间序列信噪比极低 (最优单特征IC仅 0.02-0.03):
 - LightGBM: `max_depth=3, lambda_l1/l2=15, feature_fraction=0.3, min_child=350` — 必须
 - MSE loss 追逐离群值, MAE 预测条件中位数更稳健
@@ -404,9 +404,6 @@ python cron_scheduler.py run weekly_adapt  # 手动运行
 
 - **Tick数据截止**: 2025-10-31，之后微观结构因子填0 → CNN仅在tick覆盖期训练
 - **SHIBOR/Repo**: AKShare接口偶有编码/SSL问题，资金面因子可能缺失
-- **Port 8501**: 被秋招助手Agent占用 → F_Agent固定用8503
-- **中文路径**: `D:\桌面\F_Agent` 含中文字符，某些工具可能有兼容性问题
-- **CNN需PyTorch**: 若未安装，LightGBM仍然正常工作（只是没有CNN特征）
 
 ---
 
