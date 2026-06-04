@@ -10,9 +10,15 @@ import time
 from datetime import datetime
 
 
-# Windows Streamlit兼容: stdout 在 MSYS/git-bash 下可能失效，改用 stderr
+# Windows Streamlit (git-bash/msys): stdout & stderr 可能指向不可写 fd。
+# _log 改用 os.write(2, ...) 直接写文件号 2 (stderr)，绕过 Python I/O 层。
+# 如果连这都失败，静默丢弃——不影响主流程。
 def _log(*args, **kwargs):
-    print(*args, file=sys.stderr, **kwargs)
+    try:
+        msg = ' '.join(str(a) for a in args) + '\n'
+        os.write(2, msg.encode('utf-8', errors='replace'))
+    except Exception:
+        pass  # stderr 不可写时静默丢弃
 
 
 # ============================================================
