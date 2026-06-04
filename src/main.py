@@ -12,8 +12,8 @@ def main():
     parser = argparse.ArgumentParser(description='TL国债期货量化策略系统')
     parser.add_argument(
         '--mode', type=str, default='train',
-        choices=['train', 'inference', 'iterate'],
-        help='运行模式: train=因子构建+训练+回测, inference=因子更新+实时信号, iterate=自我迭代诊断'
+        choices=['train', 'inference', 'iterate', 'evolve'],
+        help='运行模式: train=因子构建+训练+回测, inference=因子更新+实时信号, iterate=自我迭代诊断, evolve=自我进化(每周适配/双月重训)'
     )
     args = parser.parse_args()
 
@@ -34,6 +34,8 @@ def main():
         run_inference_mode(BASE_DIR)
     elif args.mode == 'iterate':
         run_iteration(BASE_DIR)
+    elif args.mode == 'evolve':
+        run_evolution(BASE_DIR)
 
 
 def run_train(base_dir, tick_subdir):
@@ -98,6 +100,29 @@ def run_iteration(base_dir):
     adj = engine.auto_adjust_signal_params()
     if adj:
         print(f"\n自动参数建议: 置信度阈值={adj['suggested_confidence_threshold']}")
+
+
+def run_evolution(base_dir):
+    """运行自我进化引擎 (LoRA-inspired自主适配)"""
+    from self_evolution import SelfEvolutionEngine, run_status
+
+    engine = SelfEvolutionEngine(base_dir)
+
+    # Show current status first
+    run_status(base_dir)
+
+    print("\n可用子命令:")
+    print("  python self_evolution.py weekly      — 每周适配 (训练新适配器)")
+    print("  python self_evolution.py bimonthly   — 双月全量重训练")
+    print("  python self_evolution.py status      — 查看引擎状态")
+    print("  python self_evolution.py predict     — 运行组合预测+保存")
+    print("\n推荐流程:")
+    print("  1. python self_evolution.py status   — 检查状态")
+    print("  2. python self_evolution.py weekly   — 每周适配")
+    print("  3. python self_evolution.py predict  — 用组合模型预测")
+    print("\n或通过定时任务自动运行:")
+    print("  python cron_scheduler.py run weekly_adapt")
+    print("  python cron_scheduler.py run bimonthly_retrain")
 
 
 if __name__ == '__main__':

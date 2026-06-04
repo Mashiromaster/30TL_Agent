@@ -60,6 +60,12 @@ def prepare_training_data(df, prediction_horizon=30):
         core_features = core_features + macro_detected
         print(f"[Model] 自动检测到 {len(macro_detected)} 个宏观因子")
 
+    # Auto-detect CNN bottleneck embeddings (from micro_cnn.py)
+    cnn_detected = [c for c in df.columns if c.startswith('CNN_Emb_')]
+    if cnn_detected:
+        core_features = core_features + cnn_detected
+        print(f"[Model] 自动检测到 {len(cnn_detected)} 个CNN嵌入因子")
+
     available_features = [f for f in core_features if f in df.columns]
 
     micro_features = [f for f in available_features if any(

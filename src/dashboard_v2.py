@@ -95,22 +95,18 @@ def main():
         st.divider()
         st.caption(f"更新: {datetime.now().strftime('%H:%M:%S')}")
 
-    # Tabs
-    tabs = st.tabs([
-        "📡 信号看板",
-        "📊 市场监控",
-        "🔬 因子分析",
-        "🔍 因子评估",
-        "💰 回测表现",
-        "🌍 宏观环境",
-        "🤖 AI情报",
-        "📚 研究RAG",
-        "🧠 交易记忆",
-        "🔄 自我迭代",
-        "📋 模型评估",
-        "⚙️ 超参优化",
-        "⏰ 定时调度",
-    ])
+    # Tabs — split into two rows
+    tab_labels = [
+        "📡 信号看板", "📊 市场监控", "🔬 因子分析", "🔍 因子评估",
+        "💰 回测表现", "🌍 宏观环境", "🤖 AI情报",
+    ]
+    tab_labels2 = [
+        "📚 研究RAG", "🧠 交易记忆", "🔄 自我迭代", "📋 模型评估",
+        "⚙️ 超参优化", "⏰ 定时调度", "🔧 微调迭代",
+    ]
+
+    tabs1 = st.tabs(tab_labels)
+    tabs2 = st.tabs(tab_labels2)
 
     try:
         ctx = load_ctx()
@@ -118,19 +114,20 @@ def main():
         st.error(f"数据加载失败: {e}")
         return
 
-    with tabs[0]: render_signal_v2(ctx)
-    with tabs[1]: render_market_from_v1(ctx)
-    with tabs[2]: render_factor_from_v1(ctx)
-    with tabs[3]: render_factor_eval(ctx)
-    with tabs[4]: render_backtest_from_v1(ctx)
-    with tabs[5]: render_macro_from_v1(ctx)
-    with tabs[6]: render_intelligence_from_v1(ctx)
-    with tabs[7]: render_rag_v2(ctx)
-    with tabs[8]: render_memory_v2(ctx)
-    with tabs[9]: render_iteration(ctx)
-    with tabs[10]: render_eval_tab(ctx)
-    with tabs[11]: render_hyperopt_tab(ctx)
-    with tabs[12]: render_cron_tab(ctx)
+    with tabs1[0]: render_signal_v2(ctx)
+    with tabs1[1]: render_market_from_v1(ctx)
+    with tabs1[2]: render_factor_from_v1(ctx)
+    with tabs1[3]: render_factor_eval(ctx)
+    with tabs1[4]: render_backtest_from_v1(ctx)
+    with tabs1[5]: render_macro_from_v1(ctx)
+    with tabs1[6]: render_intelligence_from_v1(ctx)
+    with tabs2[0]: render_rag_v2(ctx)
+    with tabs2[1]: render_memory_v2(ctx)
+    with tabs2[2]: render_iteration(ctx)
+    with tabs2[3]: render_eval_tab(ctx)
+    with tabs2[4]: render_hyperopt_tab(ctx)
+    with tabs2[5]: render_cron_tab(ctx)
+    with tabs2[6]: render_evolution(ctx)
 
 
 # ================================================================
@@ -888,6 +885,397 @@ def render_cron_tab(ctx):
         st.divider()
         st.markdown("**全量运行输出**")
         st.code(st.session_state['cron_all_output'][-2000:], language='text')
+
+
+def _build_fallback_status(base_dir):
+    """当进化引擎 pickle 损坏时，从 JSON 报告构建最小状态（只读）"""
+    import os as _os, json as _json
+    report = {}
+    history = []
+    
+    report_path = _os.path.join(base_dir, "outputs", "evolution_report.json")
+    if _os.path.exists(report_path):
+        try:
+            with open(report_path, 'r', encoding='utf-8') as f:
+                report = _json.load(f)
+        except: pass
+    
+    hist_path = _os.path.join(base_dir, "outputs", "evolution_history.jsonl")
+    if _os.path.exists(hist_path):
+        try:
+            with open(hist_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try:
+                            history.append(_json.loads(line))
+                        except: pass
+        except: pass
+    
+    return {
+        'base_model_loaded': _os.path.exists(_os.path.join(base_dir, "models", "trained_model.pkl")),
+        'adapter_stack_size': 0,
+        'active_adapters': [],
+        'latest_report': report,
+        'history': history[-20:],
+        'total_cycles': len(history),
+    }
+
+
+# ================================================================
+# Tab: 自我进化 (LoRA-inspired Self-Evolution)
+# ================================================================
+def render_evolution(ctx):
+    st.subheader("🔧 微调迭代 (LoRA-inspired + CNN 特征增强)")
+
+    st.markdown("""
+    **核心理念**: 冻结基模型 → 每周训练小型适配器学习残差 → 每两月全量重训练
+    
+    类比 LoRA 微调架构:
+    
+    | LoRA (神经网络) | F_Agent (树模型) |
+    |:--|:--|
+    | W' = W + A×B | f'(x) = f_base(x) + Σ g_adapter_i(x) × w_i |
+    | W: 冻结的预训练权重 | f_base: 冻结的LightGBM (200棵树) |
+    | A×B: 低秩适配矩阵 | g_adapter: 极小LGBM (20棵树, depth=2) |
+    | 参数量 ~1% | 参数量 ~1/20 |
+    """)
+
+    # Load evolution status (graceful fallback on corrupted adapter pickle)
+    engine = None
+    engine_error = None
+    try:
+        from self_evolution import SelfEvolutionEngine
+        engine = SelfEvolutionEngine(BASE_DIR)
+        status = engine.get_status()
+    except Exception as e:
+        engine_error = str(e)
+        # Try recovery: remove corrupted adapter pickle, load fresh
+        try:
+            import os as _os
+            stack_path = _os.path.join(BASE_DIR, "models", "adapter_stack.pkl")
+            if _os.path.exists(stack_path):
+                backup = stack_path + ".corrupted"
+                _os.rename(stack_path, backup)
+            engine = SelfEvolutionEngine(BASE_DIR)
+            status = engine.get_status()
+            st.warning(f"检测到损坏的适配器堆栈，已自动重置。原文件备份至 adapter_stack.pkl.corrupted")
+        except Exception as e2:
+            # Last resort: build minimal status from JSON files
+            status = _build_fallback_status(BASE_DIR)
+            st.warning(f"进化引擎初始化失败 (已降级到只读模式): {engine_error[:100]}")
+
+    # ─── Status cards ───
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("基模型", "✓ 已加载" if status['base_model_loaded'] else "✗ 未加载")
+    with col2:
+        st.metric("适配器堆栈", f"{status['adapter_stack_size']} 个")
+    with col3:
+        st.metric("进化周期", status['total_cycles'])
+    with col4:
+        latest = status.get('latest_report', {})
+        ic_imp = latest.get('ic_improvement', 'N/A')
+        st.metric("最新IC提升", f"{ic_imp:+.4f}" if isinstance(ic_imp, float) else ic_imp)
+
+    st.divider()
+
+    # ─── Active Adapters ───
+    st.markdown("**🔗 活跃适配器**")
+
+    adapters = status.get('active_adapters', [])
+    if adapters:
+        import pandas as pd
+        df_adapters = pd.DataFrame(adapters)
+        df_adapters.columns = ['适配器ID', '训练时间', '衰减权重', '验证IC', '焦点市场', '焦点方向']
+        df_adapters['衰减权重'] = df_adapters['衰减权重'].apply(lambda x: f"{x:.3f}")
+        df_adapters['验证IC'] = df_adapters['验证IC'].apply(lambda x: f"{x:.4f}")
+        st.dataframe(df_adapters, width='stretch', hide_index=True)
+    else:
+        st.info("暂无活跃适配器。运行一次每周适配来创建第一个适配器。")
+
+    st.divider()
+
+    # ─── Evolution History ───
+    st.markdown("**📈 进化历史**")
+
+    history = status.get('history', [])
+    if history:
+        import pandas as pd
+        rows = []
+        for h in history[-15:]:
+            rows.append({
+                '时间': h.get('timestamp', '')[:19],
+                '类型': h.get('cycle_type', ''),
+                '基模型IC': h.get('base_ic'),
+                '组合IC': h.get('combined_ic'),
+                'IC提升': h.get('ic_improvement'),
+                '适配器数': h.get('adapter_stack_size', 0),
+            })
+        df_hist = pd.DataFrame(rows)
+        
+        # Plot IC trend
+        try:
+            import plotly.graph_objects as go
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=df_hist['时间'], y=df_hist['基模型IC'],
+                mode='lines+markers', name='基模型IC',
+                line=dict(color='gray', dash='dot')
+            ))
+            fig.add_trace(go.Scatter(
+                x=df_hist['时间'], y=df_hist['组合IC'],
+                mode='lines+markers', name='组合IC (Base+Adapters)',
+                line=dict(color='#00B388')
+            ))
+            fig.add_hline(y=0, line_dash="dash", line_color="red", opacity=0.3)
+            fig.update_layout(
+                title="IC 进化轨迹",
+                xaxis_title="",
+                yaxis_title="IC",
+                height=350,
+                margin=dict(l=0, r=0, t=40, b=0),
+                legend=dict(orientation='h', yanchor='bottom', y=1.02),
+            )
+            st.plotly_chart(fig, width='stretch')
+        except Exception:
+            st.dataframe(df_hist, width='stretch', hide_index=True)
+    else:
+        st.info("暂无进化历史。")
+
+    st.divider()
+
+    # ─── Actions ───
+    st.markdown("**⚡ 手动操作**")
+
+    col_a1, col_a2, col_a3 = st.columns(3)
+    with col_a1:
+        if st.button("🔄 运行每周适配", width='stretch', key="evo_weekly"):
+            with st.spinner("训练适配器中... (可能需要1-2分钟)"):
+                import subprocess, sys
+                result = subprocess.run(
+                    [sys.executable, "self_evolution.py", "weekly", BASE_DIR],
+                    cwd=os.path.join(BASE_DIR, "src"),
+                    capture_output=True, text=True, timeout=600
+                )
+            st.session_state['evo_weekly_output'] = result.stdout
+            if result.returncode == 0:
+                st.success("每周适配完成!")
+            else:
+                st.error(f"失败: {result.stderr[:200]}")
+            st.rerun()
+
+    with col_a2:
+        if st.button("🔧 双月全量重训练", width='stretch', key="evo_bimonthly", 
+                     help="吸收所有适配器经验，全量重训练基模型"):
+            with st.spinner("全量重训练中... (可能需要5-10分钟)"):
+                import subprocess, sys
+                result = subprocess.run(
+                    [sys.executable, "self_evolution.py", "bimonthly", BASE_DIR],
+                    cwd=os.path.join(BASE_DIR, "src"),
+                    capture_output=True, text=True, timeout=1800
+                )
+            st.session_state['evo_bimonthly_output'] = result.stdout
+            if result.returncode == 0:
+                st.success("全量重训练完成! 适配器堆栈已清空。")
+            else:
+                st.error(f"失败: {result.stderr[:200]}")
+            st.rerun()
+
+    with col_a3:
+        if st.button("🔮 组合预测", width='stretch', key="evo_predict",
+                     help="用基模型+适配器生成组合预测"):
+            with st.spinner("生成组合预测..."):
+                import subprocess, sys
+                result = subprocess.run(
+                    [sys.executable, "self_evolution.py", "predict", BASE_DIR],
+                    cwd=os.path.join(BASE_DIR, "src"),
+                    capture_output=True, text=True, timeout=300
+                )
+            st.session_state['evo_predict_output'] = result.stdout
+            if result.returncode == 0:
+                st.success("组合预测已保存!")
+            else:
+                st.error(f"失败: {result.stderr[:200]}")
+            st.rerun()
+
+    # Output sections
+    for key, title in [
+        ('evo_weekly_output', '每周适配输出'),
+        ('evo_bimonthly_output', '双月重训练输出'),
+        ('evo_predict_output', '组合预测输出'),
+    ]:
+        if key in st.session_state:
+            with st.expander(title, expanded=False):
+                st.code(st.session_state[key][-2000:], language='text')
+
+    st.divider()
+
+    # ─── Latest Report ───
+    latest = status.get('latest_report', {})
+    if latest:
+        st.markdown("**📋 最新进化报告**")
+        
+        col_r1, col_r2 = st.columns(2)
+        with col_r1:
+            st.metric("周期类型", latest.get('cycle_type', '?'))
+            st.metric("基模型IC", f"{latest.get('base_ic', 'N/A')}")
+            st.metric("适配器堆栈", latest.get('adapter_stack_size', 0))
+        with col_r2:
+            st.metric("组合IC", f"{latest.get('combined_ic', 'N/A')}")
+            st.metric("IC变化", f"{latest.get('ic_improvement', 'N/A')}")
+            drift = latest.get('feedback', {}).get('drift_severity', 0)
+            st.metric("制度漂移", f"{drift:.2f}", 
+                     delta="⚠ 严重" if drift > 0.5 else "正常",
+                     delta_color="off" if drift > 0.5 else "normal")
+
+        recs = latest.get('recommendations', [])
+        if recs:
+            st.markdown("**优化建议**")
+            for r in recs:
+                st.markdown(f"- {r}")
+
+    # ─── Architecture Diagram ───
+    st.divider()
+    st.markdown("**🏗️ 自我进化架构**")
+    st.markdown("""
+    ```
+    ┌──────────────────────────────────────────────────────────┐
+    │                    F_Agent 自我进化                       │
+    │                                                          │
+    │  ┌────────────────────┐      ┌──────────────────────┐   │
+    │  │  FrozenBaseModel   │      │    AdapterStack       │   │
+    │  │  (双月全量重训练)    │  +   │  ┌─────────────────┐  │   │
+    │  │                    │      │  │ adapter_W23  ×1.0│  │   │
+    │  │  LightGBM Dual     │      │  │ adapter_W22  ×0.85│  │   │
+    │  │  200 trees × d=3   │      │  │ adapter_W21  ×0.72│  │   │
+    │  │  91 features       │      │  │ ...            │  │   │
+    │  └────────────────────┘      │  └─────────────────┘  │   │
+    │                              └──────────────────────┘   │
+    │                                                          │
+    │  组合预测: final_pred = base_pred + Σ adapter_i × w_i    │
+    │                                                          │
+    │  ┌──────────────────────────────────────────────────┐   │
+    │  │  Weekly: 反馈分析 → 残差训练 (20树,d=2) → 推入堆栈  │   │
+    │  │  Bimonthly: 吸收经验 → 全量重训练 → 清空堆栈       │   │
+    │  └──────────────────────────────────────────────────┘   │
+    └──────────────────────────────────────────────────────────┘
+    ```
+    """)
+
+    # ─── MicroCNN 微观结构嵌入 ───
+    st.divider()
+    st.markdown("**🧠 微观结构CNN嵌入 (Bottleneck Embedding)**")
+
+    st.markdown("""
+    *时空卷积网络从微观结构特征的时序窗口中提取64维稠密嵌入，作为"学习到的微观因子"注入LightGBM。*
+    """)
+
+    # Load CNN status
+    cnn_status = {}
+    try:
+        from micro_cnn import MicroCNNPipeline
+        cnn = MicroCNNPipeline(BASE_DIR)
+        cnn_status = cnn.get_status()
+    except Exception as e:
+        cnn_status['error'] = str(e)[:100]
+        cnn_status['has_torch'] = False
+
+    col_c1, col_c2, col_c3, col_c4 = st.columns(4)
+    with col_c1:
+        st.metric("PyTorch", "✓" if cnn_status.get('has_torch') else "✗ 未安装")
+    with col_c2:
+        st.metric("CNN模型", "✓ 已训练" if cnn_status.get('model_exists') else "✗ 未训练")
+    with col_c3:
+        st.metric("嵌入提取", "✓ 已提取" if cnn_status.get('embeddings_exist') else "✗ 未提取")
+    with col_c4:
+        st.metric("因子注入", "✓ 已注入" if cnn_status.get('injected') else "✗ 未注入")
+
+    if cnn_status.get('train_stats'):
+        stats = cnn_status['train_stats']
+        col_s1, col_s2, col_s3 = st.columns(3)
+        with col_s1:
+            st.metric("验证IC", f"{stats.get('val_ic', 0):.4f}")
+        with col_s2:
+            st.metric("参数量", f"{stats.get('n_params', 0):,}")
+        with col_s3:
+            st.metric("瓶颈维度", cnn_status.get('bottleneck_dim', 64))
+
+    col_ca1, col_ca2, col_ca3 = st.columns(3)
+    with col_ca1:
+        if st.button("🔬 训练CNN+注入", width='stretch', key="cnn_pipeline",
+                     help="训练微观CNN → 提取嵌入 → 注入因子文件 (需PyTorch)"):
+            with st.spinner("CNN训练中... (可能需要5-15分钟)"):
+                import subprocess, sys
+                result = subprocess.run(
+                    [sys.executable, "micro_cnn.py", "pipeline", BASE_DIR],
+                    cwd=os.path.join(BASE_DIR, "src"),
+                    capture_output=True, text=True, timeout=1800
+                )
+            st.session_state['cnn_pipeline_output'] = result.stdout
+            if result.returncode == 0:
+                st.success("CNN嵌入已注入! 下一轮LightGBM训练将自动使用CNN特征。")
+            else:
+                st.error(f"失败: {result.stderr[:300]}")
+            st.rerun()
+
+    with col_ca2:
+        if st.button("📊 查看状态", width='stretch', key="cnn_status_btn"):
+            import subprocess, sys
+            result = subprocess.run(
+                [sys.executable, "micro_cnn.py", "status", BASE_DIR],
+                cwd=os.path.join(BASE_DIR, "src"),
+                capture_output=True, text=True, timeout=30
+            )
+            st.session_state['cnn_status_output'] = result.stdout
+            st.rerun()
+
+    with col_ca3:
+        if st.button("💉 重新注入", width='stretch', key="cnn_inject",
+                     help="重新注入CNN嵌入到因子文件 (需已训练模型)"):
+            import subprocess, sys
+            result = subprocess.run(
+                [sys.executable, "micro_cnn.py", "inject", "--force", BASE_DIR],
+                cwd=os.path.join(BASE_DIR, "src"),
+                capture_output=True, text=True, timeout=60
+            )
+            st.session_state['cnn_inject_output'] = result.stdout
+            if result.returncode == 0:
+                st.success("注入完成!")
+            else:
+                st.error(f"失败: {result.stderr[:200]}")
+            st.rerun()
+
+    for key, title in [
+        ('cnn_pipeline_output', 'CNN管道输出'),
+        ('cnn_status_output', 'CNN状态'),
+        ('cnn_inject_output', '注入输出'),
+    ]:
+        if key in st.session_state:
+            with st.expander(title, expanded=False):
+                st.code(st.session_state[key][-2000:], language='text')
+
+    st.markdown("""
+    **三阶段微调架构**
+
+    | 阶段 | 技术 | 频率 | 作用 |
+    |:--|:--|:--|:--|
+    | ① CNN嵌入 | 时空1D-CNN → 64维瓶颈 | 按需训练 | 学习微观结构时序模式的稠密表示 |
+    | ② LoRA适配 | 残差LGBM (20树,d=2) | 每周 | 基于反馈修正基模型预测偏误 |
+    | ③ 全量重训 | 完整LightGBM (200树,d=3) | 每两月 | 吸收适配器经验+CNN特征,重训基模型 |
+
+    ```
+    微观特征 (25×30bar窗口)
+        ↓ 1D Temporal CNN
+    64维瓶颈嵌入 ←── 注入 df_factors.pkl
+        ↓
+    LightGBM (91+64=155特征) ←── 基模型
+        ↓
+    + AdapterStack (每周残差修正)
+        ↓
+    最终预测
+    ```
+    """)
 
 
 if __name__ == '__main__':

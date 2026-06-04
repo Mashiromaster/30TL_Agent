@@ -85,6 +85,25 @@ DEFAULT_JOBS = [
         "description": "运行自我迭代引擎，检测制度漂移，优化参数",
         "enabled": True,
     },
+    # === 自我进化任务 (LoRA-inspired) ===
+    {
+        "id": "weekly_adapt",
+        "name": "每周适配器训练 (LoRA)",
+        "kind": "cron",
+        "expr": "0 8 * * 6",  # 周六08:00
+        "command": "weekly_adapt",
+        "description": "冻结基模型，基于近30天反馈训练残差适配器(20棵树/深度2)，推入适配器堆栈",
+        "enabled": True,
+    },
+    {
+        "id": "bimonthly_retrain",
+        "name": "双月全量重训练",
+        "kind": "cron",
+        "expr": "0 9 1 */2 *",  # 每两月1号09:00
+        "command": "bimonthly_retrain",
+        "description": "吸收所有适配器经验，全量重训练基模型，清空适配器堆栈",
+        "enabled": True,
+    },
 ]
 
 
@@ -187,6 +206,16 @@ class CronScheduler:
                 result = subprocess.run(
                     [sys.executable, "main.py", "--mode", "iterate"],
                     cwd=src_dir, capture_output=True, text=True, timeout=300
+                )
+            elif cmd == 'weekly_adapt':
+                result = subprocess.run(
+                    [sys.executable, "self_evolution.py", "weekly", BASE_DIR],
+                    cwd=src_dir, capture_output=True, text=True, timeout=600
+                )
+            elif cmd == 'bimonthly_retrain':
+                result = subprocess.run(
+                    [sys.executable, "self_evolution.py", "bimonthly", BASE_DIR],
+                    cwd=src_dir, capture_output=True, text=True, timeout=1800
                 )
             else:
                 raise ValueError(f"未知命令: {cmd}")

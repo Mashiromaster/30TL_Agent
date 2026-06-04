@@ -33,7 +33,9 @@ data/rag/
 outputs/*.pkl
 outputs/*.csv
 outputs/*.json
+outputs/*.jsonl
 outputs/*.png
+outputs/.*
 
 # Models (trained binary)
 models/*.pkl
