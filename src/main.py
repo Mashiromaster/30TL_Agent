@@ -15,8 +15,8 @@ def main():
     parser = argparse.ArgumentParser(description='TL国债期货量化策略系统')
     parser.add_argument(
         '--mode', type=str, default='train',
-        choices=['train', 'inference', 'iterate', 'evolve', 'moe'],
-        help='运行模式: train=因子构建+训练+回测, inference=因子更新+实时信号, iterate=自我迭代诊断, evolve=自我进化(每周适配/双月重训), moe=双层MoE训练+基线对比'
+        choices=['train', 'inference', 'iterate', 'evolve', 'moe', 'research'],
+        help='运行模式: train=因子构建+训练+回测, inference=因子更新+实时信号, iterate=自我迭代诊断, evolve=自我进化(每周适配/双月重训), moe=双层MoE训练+基线对比, research=Research Agent 完整闭环(因子→信号→融合→记忆→回填)'
     )
     args = parser.parse_args()
 
@@ -40,6 +40,8 @@ def main():
         run_evolution(BASE_DIR)
     elif args.mode == 'moe':
         run_moe(BASE_DIR)
+    elif args.mode == 'research':
+        run_research_mode(BASE_DIR)
 
 
 def run_train(base_dir, tick_subdir):
@@ -104,6 +106,17 @@ def run_iteration(base_dir):
     adj = engine.auto_adjust_signal_params()
     if adj:
         print(f"\n自动参数建议: 置信度阈值={adj['suggested_confidence_threshold']}")
+
+
+def run_research_mode(base_dir):
+    """Research Agent 完整闭环: 因子→信号→融合决策→记录记忆→回填校准→报告"""
+    from research_agent import run_research
+
+    run_research(base_dir, rebuild_factors=True, use_llm=True)
+
+    print("\n" + "#" * 60)
+    print("#  Research Agent 闭环完成" + " " * 36 + "#")
+    print("#" * 60)
 
 
 def run_moe(base_dir):

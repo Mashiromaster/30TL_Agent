@@ -415,6 +415,50 @@ def render_ai_fusion(ctx):
     模型原始信号经过交易记忆校准、RAG政策面验证、和LLM的情境推理后，输出最终调整后的交易信号。
     """)
 
+    # ── 完整 Research 闭环 (research_agent.run_cycle) ──
+    with st.expander("▶ 运行完整 Research 闭环 (因子→信号→融合→记忆→回填)", expanded=False):
+        st.caption("一键串起自动化链路，并把融合结果回流交易记忆，形成反馈闭环。")
+        cc1, cc2 = st.columns(2)
+        with cc1:
+            loop_rebuild = st.checkbox("重建因子 (较慢)", value=False, key="loop_rebuild",
+                                       help="勾选则重跑因子构建；否则用现有 df_factors.pkl")
+        with cc2:
+            loop_llm = st.checkbox("启用 LLM 推理", value=True, key="loop_llm")
+        if st.button("▶ 运行完整闭环", width='stretch', key="loop_run"):
+            with st.spinner("Research 闭环运行中..."):
+                try:
+                    from research_agent import run_research
+                    report = run_research(BASE_DIR, rebuild_factors=loop_rebuild, use_llm=loop_llm)
+                    st.session_state['research_report'] = report
+                except Exception as e:
+                    st.error(f"闭环失败: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
+
+        report = st.session_state.get('research_report')
+        if report:
+            st.markdown("**各步状态:**")
+            for step, status in report.get('step_status', {}).items():
+                icon = "✅" if status.startswith('ok') else ("⏭️" if status.startswith('skipped') else "❌")
+                st.write(f"{icon} `{step}` — {status}")
+            if report.get('direction_changed'):
+                st.warning("⚠ 融合调整了信号方向")
+
+            # 融合层准确率 (反馈闭环度量)
+            try:
+                from memory import TradingMemory
+                fl = TradingMemory(BASE_DIR).reflection_stats().get('by_fusion_level', {})
+                if fl:
+                    st.markdown("**融合层级 × 准确率 (历史反馈):**")
+                    st.dataframe({
+                        '层级': list(fl.keys()),
+                        '准确率': [f"{v['accuracy']:.1%}" if v['accuracy'] is not None else "N/A"
+                                   for v in fl.values()],
+                        '样本': [v['count'] for v in fl.values()],
+                    }, width='stretch')
+            except Exception:
+                pass
+
     col1, col2, col3 = st.columns(3)
     with col1:
         use_llm = st.checkbox("启用 LLM 推理", value=True, key="fusion_use_llm",

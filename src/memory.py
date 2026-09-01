@@ -76,6 +76,11 @@ class TradingMemory:
             'lower_threshold': signal_dict.get('lower_threshold', 0),
             'suggested_weight': signal_dict.get('suggested_weight', 0),
             'model_used': signal_dict.get('model_used', ''),
+            # Fusion feedback (defaults fall back to raw signal → backward compatible)
+            'fused_direction': signal_dict.get('fused_direction', signal_dict.get('direction', 0)),
+            'fused_weight': signal_dict.get('fused_weight', signal_dict.get('suggested_weight', 0)),
+            'fusion_level': signal_dict.get('fusion_level', 'none'),
+            'fusion_reasons': signal_dict.get('fusion_reasons', []),
             'actual_return': None,
             'is_correct': None,
             'recorded_at': datetime.now().isoformat(),
@@ -284,6 +289,26 @@ class TradingMemory:
                         'count': len(subset),
                     }
 
+        # By fusion level (反馈闭环: 融合层级 × 准确率)
+        # 用 fused_direction 判定正确性; 缺字段的老记录回退到 direction
+        by_fusion_level = {}
+        for level in ['none', 'rule', 'rag', 'llm']:
+            subset = [r for r in evaluated if r.get('fusion_level', 'none') == level]
+            if subset:
+                lvl_correct = 0
+                for r in subset:
+                    fd = r.get('fused_direction', r.get('direction', 0))
+                    actual = r.get('actual_return')
+                    if fd != 0 and actual is not None:
+                        lvl_correct += int(np.sign(fd) == np.sign(actual))
+                acted = [r for r in subset
+                         if r.get('fused_direction', r.get('direction', 0)) != 0]
+                by_fusion_level[level] = {
+                    'accuracy': round(lvl_correct / len(acted), 4) if acted else None,
+                    'count': len(subset),
+                    'acted': len(acted),
+                }
+
         # Streak analysis
         recent = evaluated[-30:]
         streak = 0
@@ -306,6 +331,7 @@ class TradingMemory:
             'by_regime': by_regime,
             'by_direction': by_direction,
             'by_regime_direction': by_regime_dir,
+            'by_fusion_level': by_fusion_level,
             'recent_10_accuracy': round(recent_acc, 4),
             'current_win_streak': streak,
             'max_win_streak': max_streak,
@@ -342,6 +368,14 @@ class TradingMemory:
             for dname, info in dirs.items():
                 parts.append(f"{dname}:{info['accuracy']:.2%}(n={info['count']})")
             lines.append(f"  {regime}: {' | '.join(parts)}")
+
+        fl = stats.get('by_fusion_level', {})
+        if fl:
+            lines.append("")
+            lines.append("--- 融合层级 × 准确率 (反馈闭环) ---")
+            for level, info in fl.items():
+                acc = f"{info['accuracy']:.2%}" if info['accuracy'] is not None else "N/A"
+                lines.append(f"  {level}: {acc} (n={info['count']}, 交易={info['acted']})")
 
         return '\n'.join(lines)
 
