@@ -571,6 +571,20 @@ def run_process(base_dir, tick_subdir="data/tick", basis_file="data/TL合约价�
         # 5. 计算所有因子
         df_factors = calculate_enhanced_factors(df_main, df_tick, df_basis, df_macro=df_macro, bar_format=bar_format)
 
+        # 5.2. 研报文本情绪因子 (防前视: available_date = 发布日+1; 无研报则全0, 非致命)
+        try:
+            from text_factor import build_sentiment_factor
+            df_sentiment = build_sentiment_factor(base_dir)
+            if df_sentiment is not None and len(df_sentiment) > 0:
+                df_factors = merge_macro_to_minute(df_factors, df_sentiment)
+            else:
+                df_factors['Policy_Sentiment'] = 0.0
+                df_factors['Policy_Sentiment_MA5'] = 0.0
+        except Exception as e:
+            print(f"[Factor WARNING] 文本情绪因子失败 (非致命): {e}")
+            df_factors['Policy_Sentiment'] = 0.0
+            df_factors['Policy_Sentiment_MA5'] = 0.0
+
         # 5.5. 遗传规划因子挖掘（可选 — 默认启用，首次运行耗时较长）
         ENABLE_GENETIC_MINING = os.environ.get(
             'F_AGENT_GENETIC_MINING', '1'

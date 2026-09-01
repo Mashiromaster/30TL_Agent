@@ -54,7 +54,8 @@ def prepare_training_data(df, prediction_horizon=30):
     # Auto-detect macro / funding factor columns from DataFrame
     macro_patterns = ['SHIBOR_', 'Repo_', 'YC_', 'PMI_', 'CPI_', 'M2_',
                       'SocialFin', 'Injection_', 'OMO_', 'Stock_Bond',
-                      'CN_US', 'Credit', 'Risk_On', 'Liquidity', 'Macro_Surprise']
+                      'CN_US', 'Credit', 'Risk_On', 'Liquidity', 'Macro_Surprise',
+                      'Policy_Sentiment']
     macro_detected = [c for c in df.columns if any(p in c for p in macro_patterns)]
     if macro_detected:
         core_features = core_features + macro_detected
