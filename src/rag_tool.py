@@ -26,8 +26,8 @@ import numpy as np
 # os.write(b'') 在 pipe 上不触发错误，所以无条件重定向到 StringIO。
 # Streamlit 自己通过 torch._C._get_* 机制捕获日志，不依赖 stdout。
 if sys.platform == 'win32':
-    sys.stdout = io.StringIO()
-    sys.stderr = io.StringIO()
+    sys.stdout = io.TextIOWrapper(io.BytesIO(), encoding='utf-8', write_through=True)
+    sys.stderr = io.TextIOWrapper(io.BytesIO(), encoding='utf-8', write_through=True)
 
 # _log 现在安全调用 print()（stdout/stderr 已被重定向到 StringIO）
 def _log(*args, **kwargs):

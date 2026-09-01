@@ -7,17 +7,19 @@ import json
 import argparse
 from datetime import datetime
 
+sys.path.insert(0, os.path.dirname(__file__))
+from config import BASE_DIR
+
 
 def main():
     parser = argparse.ArgumentParser(description='TL国债期货量化策略系统')
     parser.add_argument(
         '--mode', type=str, default='train',
-        choices=['train', 'inference', 'iterate', 'evolve'],
-        help='运行模式: train=因子构建+训练+回测, inference=因子更新+实时信号, iterate=自我迭代诊断, evolve=自我进化(每周适配/双月重训)'
+        choices=['train', 'inference', 'iterate', 'evolve', 'moe'],
+        help='运行模式: train=因子构建+训练+回测, inference=因子更新+实时信号, iterate=自我迭代诊断, evolve=自我进化(每周适配/双月重训), moe=双层MoE训练+基线对比'
     )
     args = parser.parse_args()
 
-    BASE_DIR = r"D:\桌面\F_Agent"
     TICK_SUBDIR = "data/tick"
 
     if not os.path.exists(BASE_DIR):
@@ -36,6 +38,8 @@ def main():
         run_iteration(BASE_DIR)
     elif args.mode == 'evolve':
         run_evolution(BASE_DIR)
+    elif args.mode == 'moe':
+        run_moe(BASE_DIR)
 
 
 def run_train(base_dir, tick_subdir):
@@ -100,6 +104,19 @@ def run_iteration(base_dir):
     adj = engine.auto_adjust_signal_params()
     if adj:
         print(f"\n自动参数建议: 置信度阈值={adj['suggested_confidence_threshold']}")
+
+
+def run_moe(base_dir):
+    """双层 LightGBM MoE 训练 (需先运行过 train 生成 df_factors.pkl)"""
+    import moe_model
+
+    if not moe_model.run_process(base_dir, max_lookback_months=12, time_decay_half_life=90):
+        print("[STOP] MoE 训练失败")
+        sys.exit(1)
+
+    print("\n" + "#" * 60)
+    print("#  MoE 训练完成" + " " * 48 + "#")
+    print("#" * 60)
 
 
 def run_evolution(base_dir):

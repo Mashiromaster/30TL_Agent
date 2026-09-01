@@ -15,8 +15,8 @@ import json
 
 # ═══ Windows Streamlit 全局修复: stdout/stderr → StringIO ═══
 if sys.platform == 'win32':
-    sys.stdout = io.StringIO()
-    sys.stderr = io.StringIO()
+    sys.stdout = io.TextIOWrapper(io.BytesIO(), encoding='utf-8', write_through=True)
+    sys.stderr = io.TextIOWrapper(io.BytesIO(), encoding='utf-8', write_through=True)
 
 sys.path.insert(0, os.path.dirname(__file__))
 from strategy_agent import StrategyContext

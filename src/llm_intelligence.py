@@ -12,9 +12,38 @@ from datetime import datetime
 
 # ═══ Windows Streamlit (MSYS/git-bash) 全局修复 ═══
 # stdout/stderr 指向 pipe handle → 无条件重定向到 StringIO
+# 使用 TextIOWrapper(BytesIO) 确保 .encoding='utf-8' 可读 (openai/httpx 依赖)
 if sys.platform == 'win32':
-    sys.stdout = io.StringIO()
-    sys.stderr = io.StringIO()
+    sys.stdout = io.TextIOWrapper(io.BytesIO(), encoding='utf-8', write_through=True)
+    sys.stderr = io.TextIOWrapper(io.BytesIO(), encoding='utf-8', write_through=True)
+
+# ═══ 加载 .env 文件（CLI 模式下也自动生效） ═══
+def _load_dotenv_simple(base_dir: str) -> dict:
+    """简易 .env 加载，不依赖 python-dotenv"""
+    env_path = os.path.join(base_dir, ".env")
+    if not os.path.exists(env_path):
+        return {}
+    env_vars = {}
+    try:
+        with open(env_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                if '=' in line:
+                    key, _, value = line.partition('=')
+                    key = key.strip()
+                    value = value.strip().strip('"').strip("'")
+                    if key and value:
+                        env_vars[key] = value
+                        if key not in os.environ:
+                            os.environ[key] = value
+    except Exception:
+        pass
+    return env_vars
+
+# 自动加载项目 .env（如果存在）
+_ENV_LOADED = _load_dotenv_simple(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 def _log(*args, **kwargs):
     print(*args, **kwargs)
@@ -444,7 +473,13 @@ class LLMAnalyzer:
 
         lines.append("")
         lines.append("=" * 56)
-        lines.append("  设置 DEEPSEEK_API_KEY 环境变量以启用 AI 分析")
+        if "未设置" in reason or "API Key" in reason:
+            lines.append("  设置 DEEPSEEK_API_KEY 环境变量以启用 AI 分析")
+            lines.append("  方式1: 在 F_Agent/.env 中写入 DEEPSEEK_API_KEY=sk-...")
+            lines.append("  方式2: Dashboard 侧边栏输入 API Key")
+        else:
+            lines.append(f"  AI 分析暂时不可用: {reason}")
+            lines.append("  系统已自动切换到离线因子诊断模式")
         lines.append("=" * 56)
 
         return "\n".join(lines)

@@ -1,12 +1,18 @@
 # -*- coding: utf-8 -*-
-# strategy_agent.py — Phase 4: Claude Agent 交互层（市场解读、自然语言查询）
+# strategy_agent.py — Agent 编排层 (统一市场解读 / 信号融合 / 自然语言查询)
+#
+# 架构重整 (V2.0):
+#   StrategyContext — 统一数据访问层 (懒加载 pkl/csv/json)
+#   MarketAnalyzer  — 基于规则的文本报告生成 (保留原有 briefing 功能)
+#   SignalFusion    — try-fallback 融合决策 (见 signal_fusion.py)
+#
+#   LLM 调用统一由 signal_fusion.py 管理, 本模块不再直接调用 DeepSeek
 
 import pandas as pd
 import numpy as np
 import os
 import json
 import argparse
-from llm_intelligence import LLMAnalyzer
 
 
 class StrategyContext:
@@ -503,32 +509,98 @@ class MarketAnalyzer:
         return "\n".join(lines)
 
     # ================================================================
-    # 7. AI Market Intelligence
+    # 7. AI 融合决策 (Signal Fusion — LLM+记忆+RAG+因子)
     # ================================================================
-    def market_intelligence(self, cache_dir=None):
-        """AI-powered analysis: quant data + market news → DeepSeek V4 report."""
-        if cache_dir is None:
-            cache_dir = os.path.join(self.ctx.base_dir, "data", "macro")
-
+    def ai_fusion_decision(self, use_llm=True):
+        """
+        Try-fallback 融合决策: 如果 signal_fusion.py 可用则使用;
+        否则降级到基于规则的离线模式。
+        """
         try:
-            analyzer = LLMAnalyzer(self.ctx, cache_dir=cache_dir)
-            return analyzer.generate_intelligence_report(save=True)
+            from signal_fusion import run_fusion
+            fused = run_fusion(
+                base_dir=self.ctx.base_dir,
+                base_signal=self.ctx.signal if self.ctx.signal else None,
+                use_llm=use_llm,
+            )
+            if fused is None:
+                return self._fallback_fusion_report("无可用信号数据")
+            return self._format_fusion_report(fused)
+        except ImportError:
+            return self._fallback_fusion_report("signal_fusion 模块未加载")
         except Exception as e:
             import traceback
             traceback.print_exc()
-            lines = []
-            lines.append("=" * 56)
-            lines.append("  AI 市场情报分析 (离线模式)")
-            lines.append("=" * 56)
-            lines.append(f"  [警告] LLM 分析不可用: {e}")
-            lines.append("")
-            lines.append("  以下为基于规则的量化摘要：")
-            lines.append("")
-            lines.append(self.signal_interpretation())
-            lines.append("")
-            lines.append(self.macro_landscape())
-            lines.append("=" * 56)
-            return "\n".join(lines)
+            return self._fallback_fusion_report(str(e))
+
+    def _format_fusion_report(self, fused):
+        """格式化融合决策输出"""
+        lines = []
+        lines.append("#" * 64)
+        lines.append("#  TL国债期货 — AI 融合决策报告")
+        lines.append("#" * 64)
+
+        dir_map = {1: '做多 LONG', -1: '做空 SHORT', 0: '观望 FLAT'}
+        dir_old = dir_map.get(fused.raw_direction, '未知')
+        dir_new = dir_map.get(fused.adjusted_direction, '未知')
+
+        lines.append(f"\n  原始信号: {dir_old} (模型: {fused.model_used}, 置信度: {fused.raw_confidence:.1%})")
+        lines.append(f"  融合信号: {dir_new} (仓位: {fused.adjusted_weight:.1%})")
+        if fused.adjusted_direction != fused.raw_direction:
+            lines.append(f"  ⚠ 方向已调整!")
+
+        lines.append(f"\n  —— 决策层级: {fused.fusion_level.upper()} ——")
+
+        if fused.reasons:
+            lines.append(f"\n  📋 调整理由:")
+            for r in fused.reasons:
+                lines.append(f"     {r}")
+
+        if fused.risk_flags:
+            lines.append(f"\n  ⚠ 风险标记:")
+            for r in fused.risk_flags:
+                lines.append(f"     {r}")
+
+        if fused.supporting_evidence:
+            lines.append(f"\n  ✅ 支持证据:")
+            for s in fused.supporting_evidence:
+                lines.append(f"     {s}")
+
+        if fused.rag_policy_signals:
+            lines.append(f"\n  📚 政策面信号 (RAG):")
+            for s in fused.rag_policy_signals:
+                lines.append(f"     {s}")
+
+        if fused.llm_judgment:
+            lines.append(f"\n  🤖 AI 综合推理:")
+            for line in fused.llm_judgment.strip().split('\n'):
+                lines.append(f"     {line.strip()}")
+
+        lines.append(f"\n{'#' * 64}")
+        lines.append(f"#  生成时间: {fused.timestamp}")
+        lines.append(f"{'#' * 64}")
+
+        return "\n".join(lines)
+
+    def _fallback_fusion_report(self, reason):
+        """融合不可用时的降级报告"""
+        lines = []
+        lines.append("=" * 56)
+        lines.append("  TL国债期货 — 信号解读 (离线模式)")
+        lines.append("=" * 56)
+        lines.append(f"  [注意] AI 融合决策不可用: {reason}")
+        lines.append("  以下为基于规则的量化摘要：")
+        lines.append("=" * 56)
+        lines.append("")
+        lines.append(self.signal_interpretation())
+        lines.append("")
+        lines.append(self.factor_diagnostics())
+        lines.append("")
+        lines.append(self.macro_landscape())
+        lines.append("=" * 56)
+        if "API Key" in reason or "DEEPSEEK" in reason.upper():
+            lines.append("  设置 DEEPSEEK_API_KEY 环境变量以启用 AI 融合决策")
+        return "\n".join(lines)
 
     # ================================================================
     # Helpers
@@ -547,9 +619,10 @@ def main():
     parser = argparse.ArgumentParser(description='TL策略 Agent 交互层')
     parser.add_argument(
         '--query', type=str, default='snapshot',
-        choices=['snapshot', 'signal', 'factors', 'macro', 'performance', 'briefing', 'intelligence'],
+        choices=['snapshot', 'signal', 'factors', 'macro', 'performance', 'briefing', 'intelligence', 'fusion'],
         help='查询类型: snapshot=市场快照, signal=信号解读, factors=因子诊断, '
-             'macro=宏观环境, performance=策略表现, briefing=完整晨报, intelligence=AI市场情报'
+             'macro=宏观环境, performance=策略表现, briefing=完整晨报, '
+             'intelligence=AI市场情报(兼容旧版), fusion=AI融合决策'
     )
     parser.add_argument(
         '--base-dir', type=str, default=r'D:\桌面\F_Agent',
@@ -567,7 +640,8 @@ def main():
         'macro': analyzer.macro_landscape,
         'performance': analyzer.performance_review,
         'briefing': analyzer.full_briefing,
-        'intelligence': analyzer.market_intelligence,
+        'intelligence': analyzer.ai_fusion_decision,  # 兼容旧版
+        'fusion': analyzer.ai_fusion_decision,          # 新版: AI 融合决策
     }
 
     result = query_map[args.query]()

@@ -30,6 +30,25 @@ class SignalGenerator:
             2: {'upper': 0.80, 'lower': 0.20},
         }
 
+        # MoE soft-routing: prefer moe_model.pkl if it exists AND beat the baseline
+        # (CLAUDE.md rule #5 — never regress live IC). Falls back to base/active otherwise.
+        self.moe = None
+        moe_path = os.path.join(os.path.dirname(model_path), "moe_model.pkl")
+        if os.path.exists(moe_path):
+            try:
+                with open(moe_path, 'rb') as f:
+                    moe = pickle.load(f)
+                if moe.get('meta', {}).get('beats_baseline'):
+                    self.moe = moe
+                    self.features = moe['features']
+                    self.scaler = moe['scaler']
+                    print(f"[SignalGen] MoE 已启用 (组合 IC "
+                          f"{moe['meta']['moe_ic']:.4f} >= 基线 {moe['meta']['baseline_ic']:.4f})")
+                else:
+                    print("[SignalGen] 检测到 moe_model.pkl 但未超越基线 → 沿用 base/active")
+            except Exception as e:
+                print(f"[SignalGen] MoE 加载失败，沿用 base/active: {e}")
+
         print(f"[SignalGen] 模型已加载: {len(self.features)} 个特征")
         print(f"[SignalGen] 基础模型: {'OK' if self.model_base else 'MISSING'}")
         print(f"[SignalGen] 高波动/趋势模型: {'OK' if self.model_active else '未训练'}")
@@ -54,6 +73,25 @@ class SignalGenerator:
         X_scaled = self.scaler.transform(X)
 
         n = len(df)
+
+        # MoE soft-routing path: y_hat = sum_i gate_i(x) * expert_i(x)
+        if self.moe is not None:
+            import moe_model
+            gate_feats = self.moe['gate_features']
+            for gf in gate_feats:
+                if gf not in df.columns:
+                    df[gf] = 0
+            gate_X = df[gate_feats].fillna(0).values
+            y_pred, weights = moe_model.moe_predict(
+                self.moe['gate'], self.moe['experts'], gate_X, X_scaled)
+            dominant = weights.argmax(axis=1)
+            df['Pred_Ret'] = y_pred
+            df['Model_Used'] = [moe_model.REGIME_NAMES[i] for i in dominant]
+            df['gate_w0'] = weights[:, 0]
+            df['gate_w1'] = weights[:, 1]
+            df['gate_w2'] = weights[:, 2]
+            return df
+
         y_pred = np.zeros(n)
         model_used = np.full(n, 'base', dtype=object)
 

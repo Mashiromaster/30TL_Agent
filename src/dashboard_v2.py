@@ -21,10 +21,11 @@ from datetime import datetime
 # 必须在所有 import 之前执行。os.write(b'') 在 pipe 上不报错，
 # 所以无条件重定向——Streamlit 自身不依赖 stdout 来捕获日志。
 if sys.platform == 'win32':
-    sys.stdout = io.StringIO()
-    sys.stderr = io.StringIO()
+    sys.stdout = io.TextIOWrapper(io.BytesIO(), encoding='utf-8', write_through=True)
+    sys.stderr = io.TextIOWrapper(io.BytesIO(), encoding='utf-8', write_through=True)
 
 sys.path.insert(0, os.path.dirname(__file__))
+from config import BASE_DIR
 from strategy_agent import StrategyContext
 from rag_tool import RAGAnalyzer
 from memory import TradingMemory
@@ -37,8 +38,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-
-BASE_DIR = r"D:\桌面\F_Agent"
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -176,14 +175,14 @@ def main():
         st.divider()
         st.caption(f"更新: {datetime.now().strftime('%H:%M:%S')}")
 
-    # Tabs — split into two rows
+    # Tabs — 重构为2行×6 (12个Tab, 合并冗余功能)
     tab_labels = [
         "📡 信号看板", "📊 市场监控", "🔬 因子分析", "🔍 因子评估",
-        "💰 回测表现", "🌍 宏观环境", "🤖 AI情报",
+        "💰 回测表现", "🌍 宏观环境",
     ]
     tab_labels2 = [
-        "📚 研究RAG", "🧠 交易记忆", "🔄 自我迭代", "📋 模型评估",
-        "⚙️ 超参优化", "⏰ 定时调度", "🔧 微调迭代",
+        "🧠 AI决策融合", "📋 交易记忆", "🔄 自我进化",
+        "📊 模型评估", "⏰ 定时调度", "🧬 遗传挖掘",
     ]
 
     tabs1 = st.tabs(tab_labels)
@@ -201,14 +200,12 @@ def main():
     with tabs1[3]: render_factor_eval(ctx)
     with tabs1[4]: render_backtest_from_v1(ctx)
     with tabs1[5]: render_macro_from_v1(ctx)
-    with tabs1[6]: render_intelligence_from_v1(ctx)
-    with tabs2[0]: render_rag_v2(ctx)
+    with tabs2[0]: render_ai_fusion(ctx)          # 新: AI融合决策 (合并AI情报+RAG)
     with tabs2[1]: render_memory_v2(ctx)
-    with tabs2[2]: render_iteration(ctx)
+    with tabs2[2]: render_evolution_combined(ctx)   # 新: 自我进化 (合并迭代+微调)
     with tabs2[3]: render_eval_tab(ctx)
-    with tabs2[4]: render_hyperopt_tab(ctx)
-    with tabs2[5]: render_cron_tab(ctx)
-    with tabs2[6]: render_evolution(ctx)
+    with tabs2[4]: render_cron_tab(ctx)
+    with tabs2[5]: render_genetic_mining(ctx)
 
 
 # ================================================================
@@ -405,6 +402,293 @@ def render_rag_v2(ctx):
         st.caption(f"基于 {len(result.get('sources', []))} 个来源")
 
 
+
+# ================================================================
+# Tab: AI 融合决策 (合并 AI情报 + RAG — signal_fusion 交叉决策)
+# ================================================================
+def render_ai_fusion(ctx):
+    st.subheader("🧠 AI 融合决策 (模型+RAG+记忆→交叉判断)")
+
+    st.markdown("""
+    **三层融合架构**: 规则层 (记忆统计+异常因子) → RAG检索层 (政策面信号) → LLM推理层 (AI综合判断)
+    
+    模型原始信号经过交易记忆校准、RAG政策面验证、和LLM的情境推理后，输出最终调整后的交易信号。
+    """)
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        use_llm = st.checkbox("启用 LLM 推理", value=True, key="fusion_use_llm",
+                             help="调用 DeepSeek 做最终综合判断 (需 API Key)")
+    with col2:
+        if st.button("🚀 运行融合决策", width='stretch', type="primary", key="fusion_run"):
+            with st.spinner("融合决策中... (规则→RAG→LLM)"):
+                try:
+                    from signal_fusion import run_fusion
+                    fused = run_fusion(
+                        base_dir=BASE_DIR,
+                        base_signal=ctx.signal if ctx.signal else None,
+                        use_llm=use_llm,
+                    )
+                    st.session_state['fused_signal'] = fused
+                except Exception as e:
+                    st.error(f"融合失败: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
+    with col3:
+        signal = ctx.signal
+        if signal:
+            dir_name = {1: '做多', -1: '做空', 0: '观望'}.get(signal.get('direction', 0), '?')
+            st.metric("模型原始信号", f"{dir_name} (置信度:{signal.get('confidence', 0):.0%})")
+
+    # Show fusion result
+    if 'fused_signal' in st.session_state:
+        fused = st.session_state['fused_signal']
+        if fused is None:
+            st.warning("无可用信号数据")
+            return
+
+        st.divider()
+        st.markdown("### ⚡ 融合结果")
+
+        dir_map = {1: '做多 LONG', -1: '做空 SHORT', 0: '观望 FLAT'}
+        old_dir = dir_map.get(fused.raw_direction, '?')
+        new_dir = dir_map.get(fused.adjusted_direction, '?')
+        changed = fused.adjusted_direction != fused.raw_direction
+
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            st.metric("原始方向", old_dir)
+        with c2:
+            delta = f"← {old_dir}" if changed else None
+            st.metric("融合方向", new_dir, delta=delta, delta_color="off" if changed else "normal")
+        with c3:
+            st.metric("仓位权重", f"{fused.adjusted_weight:.1%}")
+        with c4:
+            st.metric("决策层级", fused.fusion_level.upper())
+
+        # Adjustment reasons
+        if fused.reasons:
+            st.divider()
+            st.markdown("### 📋 调整理由")
+            for r in fused.reasons:
+                if '风险' in r or '矛盾' in r or '预警' in r:
+                    st.warning(r)
+                elif '确认' in r or '一致' in r:
+                    st.success(r)
+                else:
+                    st.info(r)
+
+        if fused.risk_flags:
+            for r in fused.risk_flags:
+                st.error(f"⚠ {r}")
+
+        if fused.supporting_evidence:
+            st.divider()
+            st.markdown("### ✅ 支持证据")
+            for s in fused.supporting_evidence:
+                st.markdown(f"- {s}")
+
+        if fused.rag_policy_signals or fused.rag_contradictions:
+            st.divider()
+            st.markdown("### 📚 RAG 政策面分析")
+            if fused.rag_policy_signals:
+                for s in fused.rag_policy_signals:
+                    st.markdown(f"- 📄 {s}")
+            if fused.rag_contradictions:
+                st.markdown("**⚠ 矛盾信号:**")
+                for s in fused.rag_contradictions:
+                    st.markdown(f"- ❌ {s}")
+
+        if fused.llm_judgment:
+            st.divider()
+            st.markdown("### 🤖 AI 综合推理")
+            st.info(fused.llm_judgment)
+
+        # Fusion history
+        st.divider()
+        st.markdown("### 📜 融合历史 (最近10次)")
+        try:
+            from signal_fusion import SignalFusionEngine
+            engine = SignalFusionEngine(BASE_DIR)
+            history = engine.get_history(10)
+            if history:
+                rows = []
+                for h in reversed(history):
+                    od = dir_map.get(h.get('raw_direction', 0), '?')
+                    nd = dir_map.get(h.get('adjusted_direction', 0), '?')
+                    rows.append({
+                        '时间': h.get('timestamp', '')[:19],
+                        '原始': od,
+                        '融合': nd,
+                        '仓位': f"{h.get('adjusted_weight', 0):.0%}",
+                        '层级': h.get('fusion_level', 'none'),
+                        '修正': f"{h.get('confidence_modifier', 0):+.2f}",
+                    })
+                st.dataframe(pd.DataFrame(rows), hide_index=True, width='stretch')
+        except Exception:
+            pass
+
+    # Quick RAG query (retained from old tab)
+    st.divider()
+    st.markdown("### 📚 快速 RAG 检索 (手动查询)")
+
+    col_q1, col_q2 = st.columns([3, 1])
+    with col_q1:
+        query = st.text_input("🔍 研究问题",
+                             placeholder="例: 最新央行政策对30Y国债的影响?",
+                             key="fusion_rag_query")
+    with col_q2:
+        if st.button("🔎 检索", width='stretch', key="fusion_rag_btn") and query:
+            try:
+                from rag_tool import RAGAnalyzer
+                rag = RAGAnalyzer(BASE_DIR)
+                result = rag.query(query, top_k=5)
+                st.divider()
+                st.markdown("#### 📝 RAG 回答")
+                st.markdown(result.get('answer', '无法生成回答'))
+                sources = result.get('sources', [])
+                if sources:
+                    with st.expander("引用来源"):
+                        for s in sources:
+                            st.caption(f"📄 {s.get('title', s.get('source', '?'))[:80]}")
+            except Exception as e:
+                st.error(f"RAG 暂不可用: {e}")
+
+
+# ================================================================
+# Tab: 自我进化 (合并迭代诊断 + LoRA微调)
+# ================================================================
+def render_evolution_combined(ctx):
+    st.subheader("🔄 自我进化引擎 (诊断+微调+适配)")
+
+    tab_e1, tab_e2, tab_e3 = st.tabs(["📊 诊断报告", "🔧 微调迭代", "📈 进化历史"])
+
+    # ── Tab 1: 诊断报告 (原自我迭代) ──
+    with tab_e1:
+        st.markdown("**迭代诊断**: 从交易记忆分析失败模式, 检测制度漂移, 建议优化方向")
+
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            if st.button("🔍 运行完整诊断", width='stretch', type="primary", key="evo_diag"):
+                with st.spinner("运行诊断中..."):
+                    iterator = load_iterator()
+                    report = iterator.run_diagnostic()
+                    st.session_state['iter_report'] = report
+                    st.session_state['iter_text'] = iterator.generate_report_text(report)
+
+        with col2:
+            if 'iter_report' in st.session_state:
+                report = st.session_state['iter_report']
+                drift = report.get('drift', {})
+                if drift.get('detected'):
+                    st.error("⚠ 制度漂移检测到!")
+                else:
+                    st.success("✅ 无制度漂移")
+
+        if 'iter_report' in st.session_state:
+            report = st.session_state['iter_report']
+            perf = report.get('performance', {})
+            st.divider()
+            cols = st.columns(4)
+            with cols[0]: st.metric("整体IC", perf.get('overall_ic', 'N/A'))
+            with cols[1]: st.metric("滚动IC(30天)", perf.get('rolling_ic_latest', 'N/A'))
+            with cols[2]: st.metric("记忆准确率", f"{perf.get('memory_accuracy', 0):.1%}" if perf.get('memory_accuracy') else 'N/A')
+            with cols[3]: st.metric("近期准确率", f"{perf.get('recent_20_accuracy', 0):.1%}" if perf.get('recent_20_accuracy') else 'N/A')
+
+            recs = report.get('recommendations', [])
+            if recs:
+                st.divider()
+                st.markdown("**💡 优化建议**")
+                for r in recs:
+                    icon = {'high': '🔴', 'medium': '🟡', 'low': '🟢'}.get(r['priority'], '⚪')
+                    st.markdown(f"{icon} **[{r['priority'].upper()}] {r['action']}**: {r['detail']}")
+
+            if 'iter_text' in st.session_state:
+                with st.expander("完整诊断报告", expanded=False):
+                    st.code(st.session_state['iter_text'][:3000], language='text')
+
+    # ── Tab 2: 微调迭代 (原自我进化 - LoRA式微调) ──
+    with tab_e2:
+        st.markdown("**LoRA式增量学习**: 冻结基模型 → 每周训练小型适配器 → 每两月全量重训练")
+
+        # Load evolution status
+        engine = None
+        try:
+            from self_evolution import SelfEvolutionEngine
+            engine = SelfEvolutionEngine(BASE_DIR)
+            status = engine.get_status()
+        except Exception as e:
+            status = _build_fallback_status(BASE_DIR)
+            st.warning(f"引擎初始化降级: {str(e)[:80]}")
+
+        col_e1, col_e2, col_e3, col_e4 = st.columns(4)
+        with col_e1: st.metric("基模型", "✓" if status['base_model_loaded'] else "✗")
+        with col_e2: st.metric("适配器数", status['adapter_stack_size'])
+        with col_e3: st.metric("进化周期", status['total_cycles'])
+        with col_e4:
+            latest = status.get('latest_report', {})
+            st.metric("最新IC变化", f"{latest.get('ic_improvement', 'N/A')}")
+
+        # Adapter table
+        adapters = status.get('active_adapters', [])
+        if adapters:
+            st.divider()
+            df_a = pd.DataFrame(adapters)
+            df_a.columns = ['ID', '时间', '衰减', '验证IC', '焦点', '方向']
+            st.dataframe(df_a, hide_index=True, width='stretch')
+
+        # Actions
+        st.divider()
+        col_a1, col_a2, col_a3 = st.columns(3)
+        with col_a1:
+            if st.button("🔄 每周适配", width='stretch', key="evo_weekly2"):
+                import subprocess, sys
+                r = subprocess.run([sys.executable, "self_evolution.py", "weekly", BASE_DIR], cwd=os.path.join(BASE_DIR, "src"), capture_output=True, text=True, timeout=600)
+                if r.returncode == 0:
+                    st.success("适配完成!")
+                    st.rerun()
+        with col_a2:
+            if st.button("🔧 双月重训练", width='stretch', key="evo_bim2"):
+                import subprocess, sys
+                r = subprocess.run([sys.executable, "self_evolution.py", "bimonthly", BASE_DIR], cwd=os.path.join(BASE_DIR, "src"), capture_output=True, text=True, timeout=1800)
+                if r.returncode == 0:
+                    st.success("全量重训练完成!")
+                    st.rerun()
+        with col_a3:
+            if st.button("🔮 组合预测", width='stretch', key="evo_pred2"):
+                import subprocess, sys
+                r = subprocess.run([sys.executable, "self_evolution.py", "predict", BASE_DIR], cwd=os.path.join(BASE_DIR, "src"), capture_output=True, text=True, timeout=300)
+                if r.returncode == 0:
+                    st.success("组合预测已保存!")
+                    st.rerun()
+
+        # CNN status
+        st.divider()
+        st.markdown("**🧠 CNN嵌入状态**")
+        cnn_status = {}
+        try:
+            from micro_cnn import MicroCNNPipeline
+            cnn = MicroCNNPipeline(BASE_DIR)
+            cnn_status = cnn.get_status()
+        except: pass
+        cc1, cc2, cc3 = st.columns(3)
+        with cc1: st.metric("CNN模型", "✓" if cnn_status.get('model_exists') else "✗")
+        with cc2: st.metric("嵌入提取", "✓" if cnn_status.get('embeddings_exist') else "✗")
+        with cc3: st.metric("因子注入", "✓" if cnn_status.get('injected') else "✗")
+
+    # ── Tab 3: 进化历史 ──
+    with tab_e3:
+        history = status.get('history', []) if 'status' in dir() else []
+        if history:
+            rows = []
+            for h in history[-15:]:
+                rows.append({'时间': h.get('timestamp', '')[:19], '类型': h.get('cycle_type', ''),
+                           '基IC': h.get('base_ic'), '组合IC': h.get('combined_ic'),
+                           '提升': h.get('ic_improvement'), '适配器': h.get('adapter_stack_size', 0)})
+            df_hist = pd.DataFrame(rows)
+            st.dataframe(df_hist, hide_index=True, width='stretch')
+        else:
+            st.info("暂无进化历史")
 # ================================================================
 # Tab 7: 交易记忆 V2 — 完整复盘+可视化
 # ================================================================
@@ -1001,6 +1285,177 @@ def _build_fallback_status(base_dir):
         'history': history[-20:],
         'total_cycles': len(history),
     }
+
+
+# ================================================================
+# Tab: 遗传因子挖掘 (Genetic Programming Factor Mining)
+# ================================================================
+def render_genetic_mining(ctx):
+    st.subheader("🧬 遗传规划因子挖掘")
+
+    st.markdown("""
+    **遗传规划 (Genetic Programming) + 符号回归 (Symbolic Regression)** 自动发现新的量化因子。
+
+    原理：
+    - 种群初始化：随机生成数学表达式（因子公式）
+    - 适应度评估：用 **斯皮尔曼 Rank IC** 衡量预测收益的能力
+    - 自然选择：锦标赛选择保留高 IC 表达式
+    - 变异进化：交叉、变异生成新表达式
+    - 后处理：去重 (相关系数 >0.92 的去掉)、IC 筛选 (|IC|>门槛)
+    """)
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        pop_size = st.slider("种群大小", 500, 3000, 1500, 250, key="gp_pop")
+    with col2:
+        gen_num = st.slider("进化代数", 5, 50, 15, 5, key="gp_gen")
+    with col3:
+        min_ic = st.slider("最低|IC|门槛", 0.005, 0.05, 0.01, 0.005, key="gp_minic")
+    with col4:
+        max_factors = st.slider("最多保留因子", 5, 50, 20, 5, key="gp_maxf")
+
+    if st.button("🚀 启动遗传因子挖掘", width='stretch', type="primary", key="gp_run"):
+        if ctx.df_factors is None:
+            st.error("请确保有因子数据。先运行因子构建流程。")
+            return
+
+        with st.spinner(f"遗传规划挖掘中 (种群={pop_size}, 代数={gen_num})... 这可能需要 5-15 分钟"):
+            try:
+                from genetic_factor_miner import mine_genetic_factors
+
+                df_new, report = mine_genetic_factors(
+                    ctx.df_factors, target_col='Target_Ret',
+                    population_size=pop_size, generations=gen_num,
+                    max_new_factors=max_factors, min_ic_threshold=min_ic,
+                )
+
+                st.session_state['gp_report'] = report
+                st.session_state['gp_df_new'] = df_new
+
+            except Exception as e:
+                st.error(f"挖掘失败: {e}")
+                import traceback
+                st.code(traceback.format_exc())
+                return
+
+        report = st.session_state.get('gp_report', {})
+        if 'error' in report:
+            st.error(f"挖掘失败: {report['error']} (样本量={report.get('n_samples', 'N/A')})")
+            return
+
+        n_final = report.get('n_final', 0)
+        if n_final == 0:
+            st.warning("未发现通过 |IC| 门槛的新因子。尝试降低最低 IC 门槛或增加种群代数。")
+            return
+
+        st.success(f"发现 {n_final} 个新因子！")
+
+        # IC 排名表
+        rankings = report.get('rankings', [])
+        if rankings:
+            st.divider()
+            st.markdown("### 📊 因子排名 (按 |IC| 降序)")
+
+            rank_data = []
+            for name, ic, abs_ic in rankings[:30]:
+                rank_data.append({
+                    '因子名': name,
+                    'IC': f"{ic:+.4f}",
+                    '|IC|': f"{abs_ic:.4f}",
+                    '状态': '✅ 保留' if abs_ic >= min_ic else '⏳ 未达门槛',
+                })
+
+            df_rank = pd.DataFrame(rank_data)
+
+            def color_ic(val):
+                if isinstance(val, str) and val.startswith('+'):
+                    return 'color: #00E676'
+                elif isinstance(val, str) and val.startswith('-'):
+                    return 'color: #FF5252'
+                return ''
+
+            st.dataframe(df_rank.style.applymap(color_ic, subset=['IC']),
+                         hide_index=True, width='stretch')
+
+            # IC distribution chart
+            st.divider()
+            st.markdown("### 📈 IC 分布")
+
+            ic_vals = [ab for _, _, ab in rankings[:n_final]]
+            fig = go.Figure()
+            fig.add_trace(go.Bar(
+                x=list(range(len(ic_vals))),
+                y=ic_vals,
+                marker_color=['#00E676' if v >= 0.02 else '#FFA726' if v >= 0.01 else '#BDBDBD'
+                             for v in ic_vals],
+                text=[f'{v:.4f}' for v in ic_vals],
+                textposition='outside',
+            ))
+            fig.add_hline(y=min_ic, line_dash="dot", line_color="gray",
+                         annotation_text=f"最低门槛 ({min_ic})")
+            fig.update_layout(
+                title='发现因子的 |IC| 分布',
+                xaxis_title='因子排名',
+                yaxis_title='|IC|',
+                height=350,
+                margin=dict(l=10, r=10, t=40, b=10),
+            )
+            st.plotly_chart(fig, width='stretch')
+
+        # Discovered programs
+        programs = report.get('programs', [])
+        if programs:
+            st.divider()
+            st.markdown("### 🔬 因子表达式 (符号回归结果)")
+
+            prog_data = []
+            for p in programs[:15]:
+                prog_data.append({
+                    '序号': p['index'],
+                    '表达式': p['program'][:120],
+                    '表达式长度': p['length'],
+                })
+            st.dataframe(pd.DataFrame(prog_data), hide_index=True, width='stretch')
+
+            st.caption("💡 表达式越短通常泛化能力越强（奥卡姆剃刀）。优先使用短表达式作为因子。")
+
+        # Save button
+        st.divider()
+        col_s1, col_s2 = st.columns(2)
+        with col_s1:
+            if st.button("💾 保存因子DataFrame", width='stretch', key="gp_save_df"):
+                df_new = st.session_state.get('gp_df_new')
+                if df_new is not None:
+                    save_path = os.path.join(BASE_DIR, "outputs", "genetic_factors_result.pkl")
+                    df_new.to_pickle(save_path)
+                    st.success(f"已保存到: {save_path}")
+                    st.caption("下次因子构建时，遗传因子会自动参与模型训练。")
+
+        with col_s2:
+            if st.button("📄 导出因子报告 (JSON)", width='stretch', key="gp_save_report"):
+                save_path = os.path.join(BASE_DIR, "outputs", "genetic_factors",
+                                        f"genetic_report_{datetime.now().strftime('%Y%m%d_%H%M')}.json")
+                os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                with open(save_path, 'w', encoding='utf-8') as f:
+                    json.dump(report, f, indent=2, ensure_ascii=False, default=str)
+                st.success(f"已保存到: {save_path}")
+
+    # Show cached results if available
+    elif 'gp_report' in st.session_state:
+        report = st.session_state['gp_report']
+        n_final = report.get('n_final', 0)
+        st.info(f"上次挖掘结果：发现 {n_final} 个新因子 "
+                f"(时间: {report.get('timestamp', 'N/A')[:19]})")
+
+    # Status check: any existing genetic factors in ctx?
+    if ctx.df_factors is not None:
+        gp_cols = [c for c in ctx.df_factors.columns if c.startswith('GP_')]
+        if gp_cols:
+            st.divider()
+            st.markdown(f"**当前数据中的遗传因子**: {len(gp_cols)} 个")
+            st.text(', '.join(gp_cols[:10]))
+            if len(gp_cols) > 10:
+                st.caption(f"... 还有 {len(gp_cols) - 10} 个")
 
 
 # ================================================================

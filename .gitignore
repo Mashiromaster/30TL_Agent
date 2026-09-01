@@ -36,9 +36,13 @@ outputs/*.json
 outputs/*.jsonl
 outputs/*.png
 outputs/.*
+outputs/*.backup
 
 # Models (trained binary)
 models/*.pkl
+models/*.pt
+models/*.corrupted
+models/*.backup
 
 # Streamlit
 .streamlit/

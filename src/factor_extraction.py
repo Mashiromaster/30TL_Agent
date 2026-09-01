@@ -571,6 +571,27 @@ def run_process(base_dir, tick_subdir="data/tick", basis_file="data/TL合约价�
         # 5. 计算所有因子
         df_factors = calculate_enhanced_factors(df_main, df_tick, df_basis, df_macro=df_macro, bar_format=bar_format)
 
+        # 5.5. 遗传规划因子挖掘（可选 — 默认启用，首次运行耗时较长）
+        ENABLE_GENETIC_MINING = os.environ.get(
+            'F_AGENT_GENETIC_MINING', '1'
+        ).strip().lower() in ('1', 'true', 'yes')
+        if ENABLE_GENETIC_MINING:
+            try:
+                from genetic_factor_miner import mine_genetic_factors
+                print("\n[Factor] → 启动遗传规划因子挖掘...")
+                df_factors, gp_report = mine_genetic_factors(
+                    df_factors, target_col='Target_Ret',
+                    population_size=1500, generations=15,
+                    max_new_factors=20, min_ic_threshold=0.01,
+                )
+                if 'error' not in gp_report:
+                    n_new = gp_report.get('n_final', 0)
+                    print(f"[Factor] 遗传挖掘完成 — 新增 {n_new} 个因子")
+            except Exception as e:
+                print(f"[Factor WARNING] 遗传因子挖掘失败 (非致命): {e}")
+                import traceback
+                traceback.print_exc()
+
         # 6. 保存
         df_factors.to_pickle(OUTPUT_FILE)
         print(f"[Factor SUCCESS] 因子已保存: {OUTPUT_FILE}")

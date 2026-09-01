@@ -422,5 +422,7 @@ def run_backfill(base_dir):
 
 if __name__ == '__main__':
     import sys
-    base = sys.argv[1] if len(sys.argv) > 1 else r"D:\桌面\F_Agent"
+    sys.path.insert(0, os.path.dirname(__file__))
+    from config import BASE_DIR
+    base = sys.argv[1] if len(sys.argv) > 1 else BASE_DIR
     run_backfill(base)
