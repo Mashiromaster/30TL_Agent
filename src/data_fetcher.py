@@ -5,7 +5,19 @@ import pandas as pd
 import numpy as np
 import os
 import time
+import json
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
+
+
+@dataclass(frozen=True)
+class CachePolicy:
+    """Policy for raw macro cache validation and refresh behavior."""
+
+    force_refresh: bool = False
+    allow_stale_on_error: bool = True
+    coverage_grace_days: int = 7
+    schema_version: int = 2
 
 
 class MacroDataFetcher:
@@ -14,12 +26,19 @@ class MacroDataFetcher:
     All methods support local .pkl caching for offline/repeated use.
     """
 
-    def __init__(self, cache_dir, start_date="20230421", end_date="20251031"):
-        self.cache_dir = cache_dir
+    def __init__(
+        self,
+        cache_dir,
+        start_date="20230421",
+        end_date="20251031",
+        cache_policy=None,
+    ):
+        self.cache_dir = os.fspath(cache_dir)
         self.start_date = start_date
         self.end_date = end_date
+        self.cache_policy = cache_policy or CachePolicy()
         self._last_request_time = 0
-        os.makedirs(cache_dir, exist_ok=True)
+        os.makedirs(self.cache_dir, exist_ok=True)
 
     def _rate_limit(self):
         """Ensure at least 0.5s between AKShare requests."""
@@ -28,24 +47,111 @@ class MacroDataFetcher:
             time.sleep(0.5 - elapsed)
         self._last_request_time = time.time()
 
-    def _fetch_with_cache(self, cache_name, fetch_func):
-        """Generic cache wrapper: check cache -> fetch -> save -> return DataFrame."""
+    def _manifest_path(self, cache_name):
+        return os.path.join(self.cache_dir, f"{cache_name}.meta.json")
+
+    @staticmethod
+    def _read_pickle_safely(cache_path):
+        try:
+            cached = pd.read_pickle(cache_path)
+        except Exception as exc:
+            print(f"  [DataFetcher] Invalid cache {os.path.basename(cache_path)}: {exc}")
+            return None
+        return cached if isinstance(cached, pd.DataFrame) else None
+
+    def _load_manifest(self, cache_name):
+        try:
+            with open(self._manifest_path(cache_name), "r", encoding="utf-8") as handle:
+                return json.load(handle)
+        except (OSError, ValueError, TypeError):
+            return None
+
+    def _cache_covers_request(self, cache_name, cached):
+        manifest = self._load_manifest(cache_name)
+        if not manifest or manifest.get("schema_version") != self.cache_policy.schema_version:
+            return False
+        if "date" not in cached.columns or cached.empty:
+            return False
+        dates = pd.to_datetime(cached["date"], errors="coerce").dropna()
+        if dates.empty:
+            return False
+        requested_start = pd.to_datetime(self.start_date)
+        requested_end = pd.to_datetime(self.end_date)
+        grace = pd.Timedelta(days=self.cache_policy.coverage_grace_days)
+        return dates.min().normalize() <= requested_start and dates.max().normalize() >= requested_end - grace
+
+    def _write_cache_atomically(self, cache_name, frame):
         cache_path = os.path.join(self.cache_dir, f"{cache_name}.pkl")
-        if os.path.exists(cache_path):
-            print(f"  [DataFetcher] Loaded cached: {cache_name}")
-            return pd.read_pickle(cache_path)
+        manifest_path = self._manifest_path(cache_name)
+        token = f"{os.getpid()}-{time.time_ns()}"
+        temp_cache = f"{cache_path}.{token}.tmp"
+        temp_manifest = f"{manifest_path}.{token}.tmp"
+        dates = (
+            pd.to_datetime(frame["date"], errors="coerce").dropna()
+            if "date" in frame.columns else pd.Series(dtype="datetime64[ns]")
+        )
+        manifest = {
+            **asdict(self.cache_policy),
+            "source": cache_name,
+            "fetched_at": pd.Timestamp.now(tz="UTC").isoformat(),
+            "requested_start": str(self.start_date),
+            "requested_end": str(self.end_date),
+            "coverage_start": dates.min().isoformat() if not dates.empty else None,
+            "coverage_end": dates.max().isoformat() if not dates.empty else None,
+            "rows": int(len(frame)),
+            "columns": list(frame.columns),
+        }
+        try:
+            frame.to_pickle(temp_cache)
+            with open(temp_manifest, "w", encoding="utf-8") as handle:
+                json.dump(manifest, handle, ensure_ascii=False, indent=2)
+            os.replace(temp_cache, cache_path)
+            os.replace(temp_manifest, manifest_path)
+        finally:
+            for path in (temp_cache, temp_manifest):
+                if os.path.exists(path):
+                    os.remove(path)
+
+    def _fetch_with_cache(self, cache_name, fetch_func, force_refresh=None):
+        """Return a validated cache or refresh it atomically.
+
+        A forced refresh reaches this raw-cache layer. If the network refresh
+        fails, a readable previous cache can still be used when explicitly
+        allowed by ``CachePolicy``.
+        """
+        cache_path = os.path.join(self.cache_dir, f"{cache_name}.pkl")
+        refresh = self.cache_policy.force_refresh if force_refresh is None else force_refresh
+        stale = self._read_pickle_safely(cache_path) if os.path.exists(cache_path) else None
+        if not refresh and stale is not None and self._cache_covers_request(cache_name, stale):
+            print(f"  [DataFetcher] Loaded validated cache: {cache_name}")
+            return stale
 
         try:
             self._rate_limit()
             df = fetch_func()
             if df is not None and len(df) > 0:
-                df.to_pickle(cache_path)
+                self._write_cache_atomically(cache_name, df)
                 print(f"  [DataFetcher] Fetched & cached: {cache_name} ({len(df)} rows)")
+                return df
             else:
                 print(f"  [DataFetcher] Empty result: {cache_name}")
-            return df
+                if (
+                    self.cache_policy.allow_stale_on_error
+                    and stale is not None
+                    and self._cache_covers_request(cache_name, stale)
+                ):
+                    print(f"  [DataFetcher] Using stale cache after empty refresh: {cache_name}")
+                    return stale
+                return pd.DataFrame() if df is None else df
         except Exception as e:
             print(f"  [DataFetcher] Failed to fetch {cache_name}: {e}")
+            if (
+                self.cache_policy.allow_stale_on_error
+                and stale is not None
+                and self._cache_covers_request(cache_name, stale)
+            ):
+                print(f"  [DataFetcher] Using stale cache after refresh failure: {cache_name}")
+                return stale
             return pd.DataFrame()
 
     # ============================================================
@@ -138,55 +244,50 @@ class MacroDataFetcher:
     # 3. Repo Rates (DR007, R007, etc.)
     # ============================================================
     def fetch_repo_rates(self):
-        """Fetch interbank repo rates via rate_interbank API."""
+        """Fetch fixed repo rates from the official AKShare history API."""
         def _fetch():
             import akshare as ak
-            result = pd.DataFrame()
+            frames = []
 
-            # Try rate_interbank for Shibor fixing
+            # Official repo_rate_hist supports at most one year per request.
             try:
-                df_shibor = ak.rate_interbank(
-                    market="上海银行间同业拆放市场",
-                    symbol="Shibor人民币",
-                    indicator="隔夜"
-                )
-                if df_shibor is not None and len(df_shibor) > 0:
-                    result['date'] = pd.to_datetime(df_shibor['报告日期'])
-                    for indicator, col_name in [
-                        ('隔夜', 'SHIBOR_ON'), ('1周', 'SHIBOR_1W'),
-                        ('2周', 'SHIBOR_2W'), ('1月', 'SHIBOR_1M'),
-                        ('3月', 'SHIBOR_3M'), ('6月', 'SHIBOR_6M'),
-                        ('9月', 'SHIBOR_9M'), ('1年', 'SHIBOR_1Y'),
-                    ]:
-                        try:
-                            self._rate_limit()
-                            tmp = ak.rate_interbank(
-                                market="上海银行间同业拆放市场",
-                                symbol="Shibor人民币",
-                                indicator=indicator
-                            )
-                            result[col_name] = pd.to_numeric(tmp[tmp.columns[-1]], errors='coerce')
-                        except Exception:
-                            result[col_name] = np.nan
-            except Exception as e:
-                print(f"  [DataFetcher] SHIBOR via rate_interbank failed: {e}")
-
-            # Try repo_rate_hist for R007 / DR007
-            try:
-                self._rate_limit()
-                df_repo = ak.repo_rate_hist(
-                    start_date=self.start_date,
-                    end_date=self.end_date
-                )
-                if df_repo is not None and len(df_repo) > 0:
-                    # Columns vary by version; adapt
-                    if 'date' not in result.columns or len(result) == 0:
-                        result['date'] = pd.to_datetime(df_repo.iloc[:, 0])
+                start = pd.to_datetime(self.start_date)
+                end = pd.to_datetime(self.end_date)
+                repo_chunks = []
+                cursor = start
+                while cursor <= end:
+                    chunk_end = min(cursor + pd.Timedelta(days=364), end)
+                    self._rate_limit()
+                    chunk = ak.repo_rate_hist(
+                        start_date=cursor.strftime('%Y%m%d'),
+                        end_date=chunk_end.strftime('%Y%m%d'),
+                    )
+                    if chunk is not None and not chunk.empty:
+                        repo_chunks.append(chunk)
+                    cursor = chunk_end + pd.Timedelta(days=1)
+                if repo_chunks:
+                    repo = pd.concat(repo_chunks, ignore_index=True)
+                    date_col = 'date' if 'date' in repo.columns else repo.columns[0]
+                    rename = {
+                        col: f"Repo_{str(col).upper()}"
+                        for col in repo.columns
+                        if str(col).upper() in {
+                            'FR001', 'FR007', 'FR014', 'FDR001', 'FDR007', 'FDR014'
+                        }
+                    }
+                    if rename:
+                        repo = repo.rename(columns={date_col: 'date', **rename})
+                        repo['date'] = pd.to_datetime(repo['date'], errors='coerce')
+                        keep = ['date', *rename.values()]
+                        frames.append(repo[keep].drop_duplicates('date', keep='last'))
             except Exception as e:
                 print(f"  [DataFetcher] Repo rates failed: {e}")
 
-            if len(result) == 0:
+            if not frames:
                 return pd.DataFrame()
+            result = frames[0]
+            for frame in frames[1:]:
+                result = result.merge(frame, on='date', how='outer')
             return result.sort_values('date').reset_index(drop=True)
 
         return self._fetch_with_cache("repo_rates", _fetch)
@@ -376,17 +477,26 @@ class MacroDataFetcher:
                 df_lpr = ak.macro_china_lpr()
                 if df_lpr is not None and len(df_lpr) > 0:
                     df_lpr = df_lpr.copy()
-                    # Columns: ['日期', '1年LPR', '5年LPR']
-                    lpr_date_col = df_lpr.columns[0]
+                    # AKShare has exposed both English and Chinese schemas.
+                    lpr_date_col = next(
+                        (col for col in ('TRADE_DATE', '日期', 'date') if col in df_lpr),
+                        df_lpr.columns[0],
+                    )
                     lpr_date = pd.to_datetime(df_lpr[lpr_date_col])
+                    result_lpr = pd.DataFrame({'date': lpr_date})
                     for col in df_lpr.columns:
-                        if '1年' in col:
-                            result_lpr = pd.DataFrame({
-                                'date': lpr_date,
-                                'LPR_1Y': pd.to_numeric(df_lpr[col], errors='coerce')
-                            })
-            except Exception:
-                pass
+                        normalized = str(col).upper().replace('_', '')
+                        if '1年' in str(col) or normalized == 'LPR1Y':
+                            result_lpr['LPR_1Y'] = pd.to_numeric(df_lpr[col], errors='coerce')
+                        elif '5年' in str(col) or normalized == 'LPR5Y':
+                            result_lpr['LPR_5Y'] = pd.to_numeric(df_lpr[col], errors='coerce')
+                    if len(result_lpr.columns) > 1:
+                        result = (
+                            result_lpr if result.empty
+                            else result.merge(result_lpr, on='date', how='outer')
+                        )
+            except Exception as e:
+                print(f"  [DataFetcher] LPR failed: {e}")
 
             # Swap rate (IRS)
             try:
@@ -397,8 +507,8 @@ class MacroDataFetcher:
                 )
                 if df_swap is not None and len(df_swap) > 0 and 'date' not in result.columns:
                     result['date'] = pd.to_datetime(df_swap.iloc[:, 0])
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"  [DataFetcher] IRS metadata failed: {e}")
 
             if len(result) == 0:
                 return pd.DataFrame()

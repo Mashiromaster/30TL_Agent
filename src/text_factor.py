@@ -3,11 +3,10 @@
 #
 # spec: docs/superpowers/specs/2026-09-01-policy-sentiment-factor-design.md
 #
-# 把宏观研报(非结构化文本)转成日频情绪因子,前向填充到分钟 bar 进模型训练。
-# 关键: 严格防前视偏差 —— 只用有真实发布日的研报, available_date = 发布日 + 1天。
+# 把宏观研报转成事件频率情绪因子，并按真实可用时点合并。
 
 import os
-import glob
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -31,14 +30,14 @@ def score_text(text):
 def _load_reports_with_dates(base_dir):
     """从 data/rag 缓存读研报, 只保留有可解析真实发布日的行。
 
-    返回 DataFrame[pub_date(datetime.date), text] 或空 DataFrame。
+    返回 DataFrame[pub_ts, has_intraday_ts, text] 或空 DataFrame。
     """
     rag_dir = os.path.join(base_dir, "data", "rag")
     if not os.path.isdir(rag_dir):
-        return pd.DataFrame(columns=['pub_date', 'text'])
+        return pd.DataFrame(columns=['pub_ts', 'has_intraday_ts', 'text'])
 
     rows = []
-    for pkl in glob.glob(os.path.join(rag_dir, "*.pkl")):
+    for pkl in Path(rag_dir).rglob("*.pkl"):
         try:
             df = pd.read_pickle(pkl)
         except Exception:
@@ -46,42 +45,62 @@ def _load_reports_with_dates(base_dir):
         if not isinstance(df, pd.DataFrame) or 'date' not in df.columns:
             continue  # 无真实发布日字段 → 整源丢弃(防前视)
         for _, r in df.iterrows():
-            pub = pd.to_datetime(r.get('date'), errors='coerce')
+            raw_date = r.get('date')
+            pub = pd.to_datetime(raw_date, errors='coerce')
             if pd.isna(pub):
                 continue  # 发布日不可解析 → 丢弃
             text = str(r.get('content', '') or r.get('title', ''))
-            rows.append({'pub_date': pub.date(), 'text': text})
+            has_intraday = (
+                pub.hour != 0 or pub.minute != 0 or pub.second != 0
+            )
+            rows.append({
+                'pub_ts': pub,
+                'has_intraday_ts': has_intraday,
+                'text': text,
+            })
 
-    return pd.DataFrame(rows) if rows else pd.DataFrame(columns=['pub_date', 'text'])
+    return pd.DataFrame(rows) if rows else pd.DataFrame(
+        columns=['pub_ts', 'has_intraday_ts', 'text']
+    )
 
 
 def build_sentiment_factor(base_dir):
     """构建日频文本情绪因子。
 
-    返回 DataFrame[available_date, Policy_Sentiment, Policy_Sentiment_MA5]。
-    无可用研报时返回空 DataFrame (调用方降级为全 0)。
+    返回 DataFrame[available_ts, Policy_Sentiment, Policy_Sentiment_MA5]。
+    无可用研报时返回空 DataFrame；不会伪造全零因子。
 
-    防前视: available_date = 发布日 + 1 天 (T+1 生效)。
+    有日内发布时间时按该时间生效；只有日期时保守地在下一工作日
+    09:00 生效。
     """
     reports = _load_reports_with_dates(base_dir)
     if len(reports) == 0:
-        print("[TextFactor] 无带真实发布日的研报 → 情绪因子将为全 0")
-        return pd.DataFrame(columns=['available_date', 'Policy_Sentiment', 'Policy_Sentiment_MA5'])
+        print("[TextFactor] 无带真实发布日的研报 → 不生成文本因子")
+        return pd.DataFrame(columns=['available_ts', 'Policy_Sentiment', 'Policy_Sentiment_MA5'])
 
     reports['score'] = reports['text'].apply(score_text)
 
-    # 日频聚合: 同一发布日多份研报取均值
-    daily = reports.groupby('pub_date', as_index=False)['score'].mean()
+    reports['available_ts'] = reports['pub_ts']
+    date_only = ~reports['has_intraday_ts']
+    reports.loc[date_only, 'available_ts'] = (
+        reports.loc[date_only, 'pub_ts'].dt.normalize()
+        + pd.offsets.BDay(1)
+        + pd.Timedelta(hours=9)
+    )
+
+    # 同一可用时点多份研报取均值。
+    daily = reports.groupby('available_ts', as_index=False)['score'].mean()
     daily = daily.rename(columns={'score': 'Policy_Sentiment'})
-    daily = daily.sort_values('pub_date').reset_index(drop=True)
+    daily = daily.sort_values('available_ts').reset_index(drop=True)
 
     # 5 日均值降噪 (按发布日序列)
     daily['Policy_Sentiment_MA5'] = daily['Policy_Sentiment'].rolling(5, min_periods=1).mean()
 
-    # 防前视: T+1 生效
-    daily['available_date'] = pd.to_datetime(daily['pub_date']) + pd.Timedelta(days=1)
-
-    out = daily[['available_date', 'Policy_Sentiment', 'Policy_Sentiment_MA5']].copy()
+    out = daily[['available_ts', 'Policy_Sentiment', 'Policy_Sentiment_MA5']].copy()
+    out.attrs['factor_ttls'] = {
+        'Policy_Sentiment': 10,
+        'Policy_Sentiment_MA5': 10,
+    }
     print(f"[TextFactor] 情绪因子: {len(out)} 个发布日, "
           f"均值 {out['Policy_Sentiment'].mean():+.3f}, "
           f"范围 [{out['Policy_Sentiment'].min():+.3f}, {out['Policy_Sentiment'].max():+.3f}]")

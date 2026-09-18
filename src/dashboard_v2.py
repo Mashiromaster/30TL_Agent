@@ -1062,41 +1062,37 @@ def render_factor_eval(ctx):
     with col2:
         if st.button("🔍 快速IC评估", width='stretch', key="feval_run"):
             with st.spinner(f"评估Top {top_n}个因子..."):
-                df = pd.read_pickle(factor_path)
-                df['next_close'] = df['close'].shift(-1)
-                df['future_close'] = df['close'].shift(-31)
-                df['Target_Ret'] = (df['future_close'] / df['next_close'] - 1) * 100
+                from factor_evaluator import FactorEvaluator
+                from training_data import LabelSpec, build_forward_labels
+
+                df = build_forward_labels(
+                    pd.read_pickle(factor_path), LabelSpec(horizon_bars=30)
+                )
+                df = df.loc[df['label_valid']].copy()
+                evaluator = FactorEvaluator(df)
 
                 # Use feature importance to pick top factors
                 if os.path.exists(imp_path):
                     imp = pd.read_csv(imp_path)
                     candidates = imp[imp['importance'] > 0].head(top_n)['feature'].tolist()
                 else:
-                    exclude = {'date','trade_dt','ticker','close','open','high','low',
-                              'volume','money','oi','time','next_close','future_close',
-                              'Target_Ret','Hour','Minute','Minute_of_Day'}
-                    candidates = [c for c in df.columns if c not in exclude][:top_n]
+                    candidates = evaluator.factor_cols[:top_n]
 
-                from scipy import stats as sp_stats
                 scores = []
                 for col in candidates:
-                    if col not in df.columns: continue
-                    s = df[col].shift(1)
-                    t = df['Target_Ret']
-                    mask = s.notna() & t.notna()
-                    if mask.sum() < 100: continue
+                    if col not in evaluator.factor_cols:
+                        continue
                     try:
-                        ic = sp_stats.spearmanr(s[mask].astype(float), t[mask].astype(float))[0]
-                        if np.isnan(ic): ic = 0.0
-                        # Quantile long-short
-                        q = pd.qcut(s[mask], 5, labels=False, duplicates='drop')
-                        ls_ret = t[mask].groupby(q).mean()
-                        ls = ls_ret.iloc[-1] - ls_ret.iloc[0] if len(ls_ret) >= 2 else 0
-                        # Stability
-                        ac1 = s.dropna().autocorr(lag=1)
+                        ic_info = evaluator.compute_ic(col)
+                        quantiles = evaluator.quantile_returns(col)
+                        turnover = evaluator.factor_turnover(col)
+                        ic = ic_info.get('ic', 0.0)
+                        ls = quantiles['long_short'] if quantiles else 0.0
+                        ac1 = turnover['autocorr_1'] if turnover else 0.0
                         scores.append({'factor': col, 'ic': round(ic,4),
                                       'long_short': round(ls,6), 'stability': round(ac1 if not np.isnan(ac1) else 0, 3)})
-                    except: pass
+                    except (TypeError, ValueError):
+                        continue
 
                 st.session_state['feval_scores'] = pd.DataFrame(scores).sort_values('ic', key=abs, ascending=False)
 

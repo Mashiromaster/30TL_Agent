@@ -4,10 +4,16 @@
 import pandas as pd
 import numpy as np
 import os
+import json
+import time
 import mc_ex
 from tick_data_processor import calculate_microstructure_factors, run_tick_processing
-from data_fetcher import MacroDataFetcher
+from data_fetcher import CachePolicy, MacroDataFetcher
 from macro_factors import MacroFactorComputer
+from macro_timing import merge_point_in_time
+
+
+MACRO_FACTOR_CACHE_VERSION = 2
 
 def load_data(data_path, output_filename):
     if os.path.exists(output_filename):
@@ -141,7 +147,9 @@ def merge_basis_to_minute(df_main, df_basis):
     # 填充因子
     for col in ['Basis_ZScore_20', 'Basis_ZScore_10', 'Basis_Trend']:
         if col in df_merged.columns:
-            df_merged[col] = df_merged[col].ffill().fillna(0)
+            df_merged[col] = (
+                df_merged.groupby('ticker', sort=False)[col].ffill().fillna(0)
+            )
     
     non_zero = 0
     for col in ['Basis_ZScore_20', 'Basis_ZScore_10']:
@@ -206,7 +214,7 @@ def merge_tick_features(df_main, df_tick, bar_format='end'):
 
 def load_and_process_macro_data(base_dir, start_date="20230421", end_date="20251031", force_refresh=False):
     """
-    Load or fetch macro data via AKShare and compute daily-frequency macro factors.
+    Load or fetch macro data and compute point-in-time macro factor events.
 
     Parameters:
         base_dir: project root directory
@@ -214,22 +222,58 @@ def load_and_process_macro_data(base_dir, start_date="20230421", end_date="20251
         force_refresh: if True, bypass cache and re-fetch
 
     Returns:
-        pd.DataFrame: daily macro factors with 'available_date' column,
+        pd.DataFrame: native-frequency macro events with ``available_ts``,
                       or None if data fetching failed.
     """
     cache_dir = os.path.join(base_dir, "data/macro")
     os.makedirs(cache_dir, exist_ok=True)
 
     MACRO_FACTOR_CACHE = os.path.join(base_dir, "outputs/macro_factors.pkl")
+    MACRO_FACTOR_META = os.path.join(base_dir, "outputs/macro_factors.meta.json")
 
-    if os.path.exists(MACRO_FACTOR_CACHE) and not force_refresh:
+    def _load_cached():
+        if not (os.path.exists(MACRO_FACTOR_CACHE) and os.path.exists(MACRO_FACTOR_META)):
+            return None
+        try:
+            with open(MACRO_FACTOR_META, "r", encoding="utf-8") as handle:
+                meta = json.load(handle)
+            cached = pd.read_pickle(MACRO_FACTOR_CACHE)
+            if meta.get("schema_version") != MACRO_FACTOR_CACHE_VERSION:
+                return None
+            if "available_ts" not in cached.columns or cached.empty:
+                return None
+            available = pd.to_datetime(cached["available_ts"], errors="coerce").dropna()
+            if available.empty:
+                return None
+            requested_start = pd.to_datetime(start_date)
+            requested_end = pd.to_datetime(end_date)
+            if (
+                available.min().normalize() > requested_start
+                or available.max().normalize() < requested_end - pd.Timedelta(days=7)
+            ):
+                return None
+            cached.attrs["factor_ttls"] = meta.get("factor_ttls", {})
+            cached.attrs["factor_metadata"] = meta.get("factor_metadata", {})
+            return cached
+        except (OSError, ValueError, TypeError):
+            return None
+
+    cached = _load_cached()
+    if cached is not None and not force_refresh:
         print("[Factor] 加载已缓存的宏观因子")
-        return pd.read_pickle(MACRO_FACTOR_CACHE)
+        return cached
 
     try:
         # Step 1: Fetch raw data
         print("[Factor] 开始从 AKShare 获取宏观数据...")
-        fetcher = MacroDataFetcher(cache_dir=cache_dir, start_date=start_date, end_date=end_date)
+        requested_start = pd.to_datetime(start_date)
+        history_start = (requested_start - pd.Timedelta(days=180)).strftime("%Y%m%d")
+        fetcher = MacroDataFetcher(
+            cache_dir=cache_dir,
+            start_date=history_start,
+            end_date=end_date,
+            cache_policy=CachePolicy(force_refresh=force_refresh),
+        )
         raw_data = fetcher.fetch_all()
 
         if not raw_data:
@@ -237,20 +281,57 @@ def load_and_process_macro_data(base_dir, start_date="20230421", end_date="20251
             return None
 
         # Step 2: Compute macro factors
-        computer = MacroFactorComputer()
+        calendar_path = os.path.join(cache_dir, "release_calendar.csv")
+        release_calendar = (
+            pd.read_csv(calendar_path) if os.path.exists(calendar_path) else None
+        )
+        computer = MacroFactorComputer(release_calendar=release_calendar)
         df_macro = computer.compute_all(raw_data)
 
         if df_macro is None or len(df_macro) == 0:
             print("[Factor WARNING] 宏观因子计算为空")
             return None
 
-        # Step 3: Prepare for merge — shift by 1 day as available_date key
-        df_macro['available_date'] = df_macro['date'] + pd.Timedelta(days=1)
-        df_macro = df_macro.drop(columns=['date'])
-
-        # Step 4: Cache
-        df_macro.to_pickle(MACRO_FACTOR_CACHE)
-        print(f"[Factor] 宏观因子已缓存 ({len(df_macro)} 行, {len(df_macro.columns)-1} 个因子)")
+        # Step 3: Persist the point-in-time contract and factor TTLs.
+        ttl_days = {
+            name: int(ttl / pd.Timedelta(days=1))
+            for name, ttl in computer.factor_ttls.items()
+        }
+        metadata = {
+            name: {
+                "source": item.source,
+                "max_age_days": item.max_age_days,
+                "frequency": item.frequency,
+            }
+            for name, item in computer.factor_metadata.items()
+        }
+        df_macro.attrs["factor_ttls"] = ttl_days
+        df_macro.attrs["factor_metadata"] = metadata
+        meta = {
+            "schema_version": MACRO_FACTOR_CACHE_VERSION,
+            "built_at": pd.Timestamp.now(tz="UTC").isoformat(),
+            "requested_start": str(start_date),
+            "requested_end": str(end_date),
+            "factor_ttls": ttl_days,
+            "factor_metadata": metadata,
+            "rows": int(len(df_macro)),
+            "coverage_start": pd.to_datetime(df_macro["available_ts"]).min().isoformat(),
+            "coverage_end": pd.to_datetime(df_macro["available_ts"]).max().isoformat(),
+        }
+        token = f"{os.getpid()}-{time.time_ns()}"
+        temp_cache = f"{MACRO_FACTOR_CACHE}.{token}.tmp"
+        temp_meta = f"{MACRO_FACTOR_META}.{token}.tmp"
+        try:
+            df_macro.to_pickle(temp_cache)
+            with open(temp_meta, "w", encoding="utf-8") as handle:
+                json.dump(meta, handle, ensure_ascii=False, indent=2)
+            os.replace(temp_cache, MACRO_FACTOR_CACHE)
+            os.replace(temp_meta, MACRO_FACTOR_META)
+        finally:
+            for path in (temp_cache, temp_meta):
+                if os.path.exists(path):
+                    os.remove(path)
+        print(f"[Factor] 宏观因子已缓存 ({len(df_macro)} 个发布事件, {len(computer.factor_names)} 个因子)")
 
         return df_macro
 
@@ -263,12 +344,11 @@ def load_and_process_macro_data(base_dir, start_date="20230421", end_date="20251
 
 def merge_macro_to_minute(df_main, df_macro):
     """
-    Merge daily-frequency macro factors into minute-level DataFrame.
-    Macro factors are contract-independent — merge on date only.
+    Point-in-time merge macro factor events into minute bars.
 
     Parameters:
         df_main: minute-level DataFrame with 'date' column
-        df_macro: daily DataFrame with 'available_date' column
+        df_macro: event DataFrame with ``available_ts`` and per-factor as-of data
 
     Returns:
         pd.DataFrame: df_main with macro factor columns added
@@ -278,35 +358,26 @@ def merge_macro_to_minute(df_main, df_macro):
 
     print("[Factor] 合并宏观因子...")
 
-    df_main = df_main.copy()
-    df_main['trade_date'] = pd.to_datetime(df_main['date']).dt.date
-
-    df_macro = df_macro.copy()
-    df_macro['available_date'] = pd.to_datetime(df_macro['available_date']).dt.date
-
-    # Left join on date only (macro factors apply to all contracts equally)
-    df_merged = pd.merge(
+    existing_macro_features = list(df_main.attrs.get("macro_features", []))
+    ttl_days = df_macro.attrs.get("factor_ttls", {})
+    ttl_map = {
+        name: pd.Timedelta(days=float(days))
+        for name, days in ttl_days.items()
+    }
+    df_merged = merge_point_in_time(
         df_main,
         df_macro,
-        left_on=['trade_date'],
-        right_on=['available_date'],
-        how='left'
+        timestamp_col="date",
+        factor_ttls=ttl_map,
+        fill_value=0.0,
     )
-
-    if 'available_date' in df_merged.columns:
-        df_merged.drop('available_date', axis=1, inplace=True)
-    if 'trade_date' in df_merged.columns:
-        df_merged.drop('trade_date', axis=1, inplace=True)
-
-    # Forward fill and fill remaining NaN with 0
-    macro_cols = [c for c in df_macro.columns if c != 'available_date']
-    for col in macro_cols:
-        if col in df_merged.columns:
-            df_merged[col] = df_merged[col].ffill().fillna(0)
-
-    non_zero = sum((df_merged[c] != 0).sum() for c in macro_cols if c in df_merged.columns)
-    total_cells = len(macro_cols) * len(df_merged) if macro_cols else 1
-    print(f"[Factor] 宏观因子合并成功率: {non_zero / total_cells:.1%}")
+    new_macro_features = [name for name in ttl_map if name in df_merged.columns]
+    df_merged.attrs["macro_features"] = list(dict.fromkeys(
+        existing_macro_features + new_macro_features
+    ))
+    coverage = df_merged["_macro_coverage_count"].gt(0).mean()
+    stale = df_merged["_macro_stale_count"].gt(0).mean()
+    print(f"[Factor] 宏观覆盖行: {coverage:.1%}; 含过期因子的行: {stale:.1%}")
 
     return df_merged
 
@@ -319,7 +390,8 @@ def calculate_core_factors(df):
     """V9.7 核心因子"""
     print("[Factor] 计算核心因子...")
     
-    close_lagged = df['close'].shift(1)
+    price = pd.to_numeric(df.get('adj_close', df['close']), errors='coerce')
+    close_lagged = price.shift(1)
     ret_lagged = close_lagged.pct_change()
     
     # === 1. 动量因子 ===
@@ -348,9 +420,10 @@ def calculate_core_factors(df):
     rv_60 = ret_lagged.rolling(60).std() * np.sqrt(240)
     df['Vol_Surge'] = (rv_5 / (rv_60 + 1e-9)).clip(0, 10)
     
-    high_lag = df['high'].shift(1)
-    low_lag = df['low'].shift(1)
-    close_lag2 = df['close'].shift(2)
+    adjustment = price / pd.to_numeric(df['close'], errors='coerce').replace(0, np.nan)
+    high_lag = (pd.to_numeric(df['high'], errors='coerce') * adjustment).shift(1)
+    low_lag = (pd.to_numeric(df['low'], errors='coerce') * adjustment).shift(1)
+    close_lag2 = price.shift(2)
     
     tr = pd.DataFrame()
     tr['hl'] = high_lag - low_lag
@@ -482,7 +555,12 @@ def calculate_enhanced_factors(df, df_tick=None, df_basis=None, df_macro=None, b
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
     min_valid_rows = 500
     df_clean = df.iloc[min_valid_rows:].copy()
-    df_clean = df_clean.ffill().fillna(0)
+    numeric_cols = list(df_clean.select_dtypes(include=[np.number, "bool"]).columns)
+    if 'ticker' in df_clean.columns:
+        df_clean[numeric_cols] = df_clean.groupby('ticker', sort=False)[numeric_cols].ffill()
+    else:
+        df_clean[numeric_cols] = df_clean[numeric_cols].ffill()
+    df_clean[numeric_cols] = df_clean[numeric_cols].fillna(0)
     
     # 统计
     micro_cols = [col for col in df_clean.columns if any(
@@ -493,7 +571,7 @@ def calculate_enhanced_factors(df, df_tick=None, df_basis=None, df_macro=None, b
     macro_cols = [col for col in df_clean.columns if any(
         keyword in col for keyword in ['SHIBOR', 'Repo', 'YC_', 'PMI', 'CPI', 'M2_',
                                         'SocialFin', 'Injection', 'OMO', 'Stock_Bond',
-                                        'CN_US', 'Credit', 'Risk_On', 'Liquidity', 'Macro_Surprise']
+                                        'CN_US', 'Credit', 'Risk_On', 'Liquidity', 'Macro_']
     )]
 
     print(f"[Factor] 有效数据: {len(df_clean)} 行")
@@ -513,7 +591,12 @@ def calculate_enhanced_factors(df, df_tick=None, df_basis=None, df_macro=None, b
     return df_clean
 
 
-def run_process(base_dir, tick_subdir="data/tick", basis_file="data/TL合约价差日频数据.pkl"):
+def run_process(
+    base_dir,
+    tick_subdir="data/tick",
+    basis_file="data/TL合约价差日频数据.pkl",
+    force_refresh_macro=None,
+):
     """因子构建主流程"""
     print("\n" + "="*50)
     print("STEP 2: 因子构建")
@@ -561,54 +644,47 @@ def run_process(base_dir, tick_subdir="data/tick", basis_file="data/TL合约价�
         date_min = pd.to_datetime(df_main['date']).min().strftime('%Y%m%d')
         date_max = pd.to_datetime(df_main['date']).max().strftime('%Y%m%d')
 
+        if force_refresh_macro is None:
+            force_refresh_macro = os.environ.get(
+                "F_AGENT_MACRO_FORCE_REFRESH", "0"
+            ).strip().lower() in ("1", "true", "yes")
         df_macro = load_and_process_macro_data(
             base_dir,
             start_date=date_min,
             end_date=date_max,
-            force_refresh=False
+            force_refresh=force_refresh_macro,
         )
 
         # 5. 计算所有因子
         df_factors = calculate_enhanced_factors(df_main, df_tick, df_basis, df_macro=df_macro, bar_format=bar_format)
 
-        # 5.2. 研报文本情绪因子 (防前视: available_date = 发布日+1; 无研报则全0, 非致命)
+        # 5.2. 研报文本情绪事件（无可靠发布时点时不伪造因子）
         try:
             from text_factor import build_sentiment_factor
             df_sentiment = build_sentiment_factor(base_dir)
             if df_sentiment is not None and len(df_sentiment) > 0:
                 df_factors = merge_macro_to_minute(df_factors, df_sentiment)
-            else:
-                df_factors['Policy_Sentiment'] = 0.0
-                df_factors['Policy_Sentiment_MA5'] = 0.0
         except Exception as e:
             print(f"[Factor WARNING] 文本情绪因子失败 (非致命): {e}")
-            df_factors['Policy_Sentiment'] = 0.0
-            df_factors['Policy_Sentiment_MA5'] = 0.0
 
-        # 5.5. 遗传规划因子挖掘（可选 — 默认启用，首次运行耗时较长）
+        # 5.5. GP 属于训练期候选发现，默认不在全样本因子构建中运行。
         ENABLE_GENETIC_MINING = os.environ.get(
-            'F_AGENT_GENETIC_MINING', '1'
+            'F_AGENT_GENETIC_MINING', '0'
         ).strip().lower() in ('1', 'true', 'yes')
         if ENABLE_GENETIC_MINING:
-            try:
-                from genetic_factor_miner import mine_genetic_factors
-                print("\n[Factor] → 启动遗传规划因子挖掘...")
-                df_factors, gp_report = mine_genetic_factors(
-                    df_factors, target_col='Target_Ret',
-                    population_size=1500, generations=15,
-                    max_new_factors=20, min_ic_threshold=0.01,
-                )
-                if 'error' not in gp_report:
-                    n_new = gp_report.get('n_final', 0)
-                    print(f"[Factor] 遗传挖掘完成 — 新增 {n_new} 个因子")
-            except Exception as e:
-                print(f"[Factor WARNING] 遗传因子挖掘失败 (非致命): {e}")
-                import traceback
-                traceback.print_exc()
+            print(
+                "[Factor WARNING] 已忽略 F_AGENT_GENETIC_MINING："
+                "GP 已迁移到训练折后的 discovery/validation 流程，避免全样本泄漏。"
+            )
 
         # 6. 保存
         df_factors.to_pickle(OUTPUT_FILE)
         print(f"[Factor SUCCESS] 因子已保存: {OUTPUT_FILE}")
+
+        from artifact_audit import write_factor_artifact_audit
+        audit_path = os.path.join(base_dir, "outputs/factor_artifact_audit.json")
+        write_factor_artifact_audit(df_factors, audit_path)
+        print(f"[Factor] 因子质量审计: {audit_path}")
 
         return True
 

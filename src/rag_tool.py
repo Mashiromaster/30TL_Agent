@@ -467,10 +467,10 @@ class ResearchCrawler:
 
         # Key macro indicators
         macro_mapping = [
-            ('PMI_ZScore', 'PMI Z-Score (制造业景气度)'),
-            ('CPI_Momentum', 'CPI 动量 (通胀趋势)'),
-            ('M2_Surprise', 'M2 超预期 (货币宽松程度)'),
-            ('Macro_Surprise_Composite', '宏观综合意外指数'),
+            ('PMI_State_ZScore', 'PMI 状态 Z-Score (制造业景气度)'),
+            ('CPI_Acceleration_3M', 'CPI 三月加速度 (通胀趋势)'),
+            ('M2_State_ZScore', 'M2 状态 Z-Score (货币松紧程度)'),
+            ('Macro_State_Composite', '宏观综合状态指数'),
             ('CN_US_10Y_Spread', '中美10年期利差'),
             ('Risk_On_Off', '风险偏好 (Risk-On/Off)'),
             ('Liquidity_Risk', '流动性风险指标'),

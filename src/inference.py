@@ -20,6 +20,9 @@ class SignalGenerator:
         self.model_active = artifacts.get('model_active')
         self.scaler = artifacts['scaler']
         self.features = artifacts['features']
+        self.hierarchical_model = artifacts.get('hierarchical_model')
+        self.selected_model_kind = artifacts.get('selected_model_kind', 'flat_combined')
+        self.gp_miner = artifacts.get('gp_miner')
 
         self.signal_smooth_span = 160
 
@@ -30,22 +33,29 @@ class SignalGenerator:
             2: {'upper': 0.80, 'lower': 0.20},
         }
 
-        # MoE soft-routing: prefer moe_model.pkl if it exists AND beat the baseline
-        # (CLAUDE.md rule #5 — never regress live IC). Falls back to base/active otherwise.
+        # Legacy MoE artifacts used the test set for promotion. They are only
+        # eligible when a newer artifact explicitly records validation-OOF
+        # promotion and confirms that the sealed holdout was not used.
         self.moe = None
         moe_path = os.path.join(os.path.dirname(model_path), "moe_model.pkl")
         if os.path.exists(moe_path):
             try:
                 with open(moe_path, 'rb') as f:
                     moe = pickle.load(f)
-                if moe.get('meta', {}).get('beats_baseline'):
+                meta = moe.get('meta', {})
+                eligible = (
+                    meta.get('promote') is True
+                    and meta.get('promotion_basis') == 'validation_oof'
+                    and meta.get('sealed_holdout_used_for_selection') is False
+                )
+                if eligible:
                     self.moe = moe
                     self.features = moe['features']
                     self.scaler = moe['scaler']
                     print(f"[SignalGen] MoE 已启用 (组合 IC "
                           f"{moe['meta']['moe_ic']:.4f} >= 基线 {moe['meta']['baseline_ic']:.4f})")
                 else:
-                    print("[SignalGen] 检测到 moe_model.pkl 但未超越基线 → 沿用 base/active")
+                    print("[SignalGen] MoE 无合格的验证集晋级凭证 → 沿用已选模型")
             except Exception as e:
                 print(f"[SignalGen] MoE 加载失败，沿用 base/active: {e}")
 
@@ -60,16 +70,32 @@ class SignalGenerator:
         """
         df = df_factors.copy()
 
+        if self.gp_miner is not None and self.gp_miner.selected_programs_:
+            gp_inputs = self.gp_miner.feature_names_in_
+            missing_gp_inputs = [name for name in gp_inputs if name not in df]
+            if missing_gp_inputs:
+                raise ValueError(f"GP 输入 schema 不匹配，缺失: {missing_gp_inputs}")
+            generated = self.gp_miner.transform(df[gp_inputs])
+            for name in generated:
+                df[name] = generated[name]
+
         # Ensure all required features exist
         available = [f for f in self.features if f in df.columns]
         missing = set(self.features) - set(available)
         if missing:
-            print(f"[SignalGen] WARNING: 缺失 {len(missing)} 个特征，补0")
-            for m in missing:
-                df[m] = 0
-            available = self.features
+            raise ValueError(f"模型特征 schema 不匹配，缺失: {sorted(missing)}")
 
-        X = df[available].fillna(0).values
+        if self.selected_model_kind == 'hierarchical':
+            if self.hierarchical_model is None:
+                raise ValueError("模型声明为 hierarchical，但产物缺少 hierarchical_model")
+            components = self.hierarchical_model.components(df)
+            df['Pred_Ret'] = components['prediction']
+            df['Model_Used'] = 'hierarchical'
+            for col in ['micro_alpha', 'macro_state', 'gate_weight', 'event_alpha']:
+                df[col] = components[col]
+            return df
+
+        X = df[available]
         X_scaled = self.scaler.transform(X)
 
         n = len(df)

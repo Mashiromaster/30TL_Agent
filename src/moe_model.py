@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
-# moe_model.py — 双层 LightGBM Mixture-of-Experts (V1.0)
+# moe_model.py — 旧 MoE 兼容入口
 #
 # 架构 (spec: docs/superpowers/specs/2026-09-01-lightgbm-moe-design.md):
 #   第一层 Gating Layer : LightGBM 多分类门控 → softmax(g0,g1,g2)
 #   第二层 Expert Layer : 3 个 regime 专家 (正常/高波动/趋势)，各自只在对应 regime 训练
 #   软路由融合          : y_hat = g0*f0(x) + g1*f1(x) + g2*f2(x)
 #
-# 上线判据 (CLAUDE.md rule #5): MoE 组合 IC >= 现有 base/active 硬路由基线 IC 才切换默认路径。
+# 注意：旧实现保留用于读取历史产物，但 run_process 已转发到新的
+# slow-macro/fast-micro 管线，避免用测试集做晋级判据。
 
 import os
 import pickle
@@ -142,7 +143,8 @@ def _ic(y, yhat):
     return np.corrcoef(y, yhat)[0, 1]
 
 
-def run_process(base_dir, max_lookback_months=12, time_decay_half_life=90):
+def _legacy_run_process(base_dir, max_lookback_months=12, time_decay_half_life=90):
+    """Historical implementation retained for artifact archaeology only."""
     print("\n" + "=" * 50)
     print("MoE: 双层 LightGBM Mixture-of-Experts 训练")
     print("=" * 50)
@@ -282,3 +284,16 @@ def _baseline_ic(X_train, y_train, regime_train, X_val, y_val,
     other = ~test_active
     y_pred[other] = base.predict(X_test[other])
     return _ic(y_test, y_pred)
+
+
+def run_process(base_dir, max_lookback_months=12, time_decay_half_life=90):
+    """Route callers to the leakage-safe hierarchical training pipeline."""
+    print(
+        "[MoE] 旧版同验证集造门控标签并拟合、再用测试集晋级的流程已停用；"
+        "改用 LightGBM_model 的验证集消融与 slow-macro/fast-micro 分层模型。"
+    )
+    return base_lgb.run_process(
+        base_dir,
+        max_lookback_months=max_lookback_months,
+        time_decay_half_life=time_decay_half_life,
+    )

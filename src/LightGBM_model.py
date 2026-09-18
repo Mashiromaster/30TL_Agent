@@ -1,286 +1,426 @@
 # -*- coding: utf-8 -*-
-# LightGBM_model.py (V3.2 - 9月窗口 + 60d衰减)
+"""Leakage-safe LightGBM training with macro/micro ablations."""
 
-import pandas as pd
-import numpy as np
+from __future__ import annotations
+
+import json
 import os
 import pickle
-from sklearn.preprocessing import RobustScaler
+import platform
+
 import lightgbm as lgb
+import numpy as np
+import pandas as pd
+import sklearn
 from lightgbm import LGBMRegressor
-from sklearn.metrics import mean_squared_error
+from scipy import stats
 
-def prepare_training_data(df, prediction_horizon=30):
-    """准备训练数据"""
-    df = df.copy()
-
-    df['next_close'] = df['close'].shift(-1)
-    df['future_close'] = df['close'].shift(-(prediction_horizon + 1))
-    df['Target_Ret'] = (df['future_close'] / df['next_close'] - 1) * 100
-
-    # 精选核心因子（基于重要性分析）
-    core_features = [
-        # === 动量因子 ===
-        'Mid_Momentum_1M', 'Mid_Momentum_2M',
-        'Short_Momentum_1D', 'Short_Momentum_3D', 'Short_Momentum_5D',
-        'TSMOM', 'Momentum_Alignment',
-
-        # === 波动率因子 ===
-        'RV_30', 'RV_120', 'Vol_Surge', 'ATR_14', 'Vol_Regime',
-
-        # === 微观结构因子 ===
-        'Spread_Mean', 'Spread_Ratio',
-        'Cum_Imbalance_15', 'Cum_Imbalance_30', 'Imbalance_ZScore',
-        'Signed_Vol_5', 'Signed_Vol_15',
-        'VPIN_5', 'VPIN_15',
-        'HF_RV_5', 'HF_RV_30', 'HF_Vol_Ratio',
-        'Cum_Net_Open_15', 'Cum_Net_Open_30',
-        'Close_Pressure', 'Open_Price_Push',
-        'Trade_Intensity', 'Vol_Disconnect',
-
-        # === 量价因子 ===
-        'OI_Volume_Flow', 'Smart_Money', 'Large_Trade_Direction',
-
-        # === 技术因子 ===
-        'MACD_Hist', 'RSI', 'BB_Position',
-
-        # === 市场状态 ===
-        'Market_Regime', 'Is_High_Vol',
-
-        # === 基差因子===
-        'Basis_ZScore_20', 'Basis_Trend', 'Basis_ZScore_10',
-    ]
-
-    # Auto-detect macro / funding factor columns from DataFrame
-    macro_patterns = ['SHIBOR_', 'Repo_', 'YC_', 'PMI_', 'CPI_', 'M2_',
-                      'SocialFin', 'Injection_', 'OMO_', 'Stock_Bond',
-                      'CN_US', 'Credit', 'Risk_On', 'Liquidity', 'Macro_Surprise',
-                      'Policy_Sentiment']
-    macro_detected = [c for c in df.columns if any(p in c for p in macro_patterns)]
-    if macro_detected:
-        core_features = core_features + macro_detected
-        print(f"[Model] 自动检测到 {len(macro_detected)} 个宏观因子")
-
-    # Auto-detect CNN bottleneck embeddings (from micro_cnn.py)
-    cnn_detected = [c for c in df.columns if c.startswith('CNN_Emb_')]
-    if cnn_detected:
-        core_features = core_features + cnn_detected
-        print(f"[Model] 自动检测到 {len(cnn_detected)} 个CNN嵌入因子")
-
-    available_features = [f for f in core_features if f in df.columns]
-
-    micro_features = [f for f in available_features if any(
-        keyword in f for keyword in ['Spread', 'Imbalance', 'VPIN', 'HF_', 'Signed',
-                                     'Trade_', 'Open_', 'Close_', 'Cum_', 'Vol_Disconnect']
-    )]
-
-    print(f"[Model] 可用特征数: {len(available_features)}")
-    print(f"[Model] 其中微观结构特征: {len(micro_features)}")
-
-    macro_model_features = [f for f in available_features if any(p in f for p in macro_patterns)]
-    if macro_model_features:
-        print(f"[Model] 其中宏观特征: {len(macro_model_features)}")
-
-    df_model = df.dropna(subset=['Target_Ret']).copy()
-    for col in available_features:
-        if col in df_model.columns:
-            df_model[col] = df_model[col].fillna(0)
-
-    return df_model, available_features
+from feature_registry import FeatureGroups, discover_feature_groups
+from hierarchical_model import HierarchicalMacroMicroModel
+from training_data import (
+    LabelSpec,
+    SplitSpec,
+    build_forward_labels,
+    split_train_validation_holdout,
+)
 
 
-def train_model(X_train, y_train, X_val, y_val, model_type='base', sample_weight=None):
-    """训练模型 - 强正则化 + MAE + 适度容量 + 时间衰减权重"""
-    if model_type == 'highvol':
-        model = LGBMRegressor(
-            n_estimators=200,
-            learning_rate=0.005,
-            num_leaves=8,
-            max_depth=4,
-            lambda_l1=10.0,
-            lambda_l2=10.0,
-            feature_fraction=0.4,
-            bagging_fraction=0.5,
-            bagging_freq=5,
-            min_child_samples=250,
-            min_split_gain=0.01,
-            objective='regression_l1',
-            random_state=42,
-            n_jobs=-1,
-            verbose=-1
-        )
-    else:
-        model = LGBMRegressor(
-            n_estimators=200,
-            learning_rate=0.005,
-            num_leaves=8,
-            max_depth=3,
-            lambda_l1=15.0,
-            lambda_l2=15.0,
-            feature_fraction=0.3,
-            bagging_fraction=0.4,
-            bagging_freq=5,
-            min_child_samples=350,
-            min_split_gain=0.01,
-            objective='regression_l1',
-            random_state=42,
-            n_jobs=-1,
-            verbose=-1
-        )
+class IdentityScaler:
+    """Backward-compatible no-op scaler; LightGBM consumes raw numeric values."""
 
-    model.fit(
-        X_train, y_train,
-        sample_weight=sample_weight,
-        eval_set=[(X_val, y_val)],
-        callbacks=[lgb.early_stopping(stopping_rounds=100, verbose=False),
-                   lgb.log_evaluation(period=0)]
+    def fit(self, values):
+        return self
+
+    def transform(self, values):
+        return values
+
+    def fit_transform(self, values):
+        return self.transform(values)
+
+
+def _ic(target, prediction):
+    pair = pd.DataFrame({"y": target, "p": prediction}).dropna()
+    if len(pair) < 10 or pair["y"].nunique() < 2 or pair["p"].nunique() < 2:
+        return np.nan
+    return float(stats.spearmanr(pair["y"], pair["p"]).statistic)
+
+
+def _json_number(value):
+    return float(value) if value is not None and np.isfinite(value) else None
+
+
+def _date_block_stability(frame, prediction, blocks=5):
+    days = pd.to_datetime(frame["date"]).dt.normalize()
+    unique_days = np.asarray(sorted(days.dropna().unique()))
+    predictions = pd.Series(prediction, index=frame.index)
+    values = []
+    for block_days in np.array_split(unique_days, blocks):
+        if len(block_days) == 0:
+            continue
+        mask = days.isin(block_days)
+        value = _ic(frame.loc[mask, "Target_Ret"], predictions.loc[mask])
+        if np.isfinite(value):
+            values.append(value)
+    median = float(np.median(values)) if values else np.nan
+    same_sign = (
+        float(np.mean(np.sign(values) == np.sign(median)))
+        if values and median != 0 else 0.0
+    )
+    return {
+        "fold_ics": [_json_number(value) for value in values],
+        "median_ic": _json_number(median),
+        "same_sign_ratio": same_sign,
+        "positive_fold_count": int(np.sum(np.asarray(values) > 0)),
+        "fold_count": len(values),
+    }
+
+
+def _validation_promotion_eligible(stability):
+    """Validation-only candidate eligibility; never reads sealed holdout data."""
+    return bool(
+        stability["fold_count"] >= 5
+        and stability["positive_fold_count"] >= 3
+        and (stability["median_ic"] or 0.0) > 0
     )
 
+
+def _release_gate_passed(promotion_eligible, sealed_holdout_ic):
+    """One-time deployment veto after all candidate choices have been frozen."""
+    return bool(
+        promotion_eligible
+        and np.isfinite(sealed_holdout_ic)
+        and sealed_holdout_ic > 0
+    )
+
+
+def prepare_training_data(df, prediction_horizon=30, label_spec=None):
+    """Build one label definition and discover a validated feature schema."""
+    spec = label_spec or LabelSpec(horizon_bars=prediction_horizon)
+    labelled = build_forward_labels(df, spec)
+    groups = discover_feature_groups(labelled)
+    features = list(groups.all_features)
+    model = labelled.loc[labelled["label_valid"]].copy()
+    model.attrs["feature_groups"] = groups.as_dict()
+    model.attrs["label_spec"] = spec.__dict__
+    print(
+        f"[Model] features={len(features)} "
+        f"micro={len(groups.micro)} market={len(groups.market)} "
+        f"macro={len(groups.macro)} regime={len(groups.regime)} gp={len(groups.gp)}"
+    )
+    return model, features
+
+
+def train_model(
+    X_train,
+    y_train,
+    X_val,
+    y_val,
+    model_type="base",
+    sample_weight=None,
+):
+    """Fit a regularized LightGBM model using validation-only early stopping."""
+    high_capacity = model_type == "highvol"
+    model = LGBMRegressor(
+        n_estimators=400,
+        learning_rate=0.01,
+        num_leaves=12 if high_capacity else 8,
+        max_depth=4 if high_capacity else 3,
+        lambda_l1=10.0 if high_capacity else 15.0,
+        lambda_l2=10.0 if high_capacity else 15.0,
+        feature_fraction=0.5 if high_capacity else 0.4,
+        bagging_fraction=0.6 if high_capacity else 0.5,
+        bagging_freq=5,
+        min_child_samples=250 if high_capacity else 350,
+        min_split_gain=0.01,
+        objective="regression_l1",
+        importance_type="gain",
+        random_state=42,
+        n_jobs=-1,
+        verbosity=-1,
+    )
+    callbacks = [
+        lgb.early_stopping(stopping_rounds=75, verbose=False),
+        lgb.log_evaluation(period=0),
+    ]
+    model.fit(
+        X_train,
+        y_train,
+        sample_weight=sample_weight,
+        eval_set=[(X_val, y_val)],
+        callbacks=callbacks,
+    )
     return model
 
 
+def _time_decay_weights(frame, half_life_days):
+    if not half_life_days:
+        return None
+    dates = pd.to_datetime(frame["date"])
+    age = (dates.max() - dates).dt.total_seconds().div(86400)
+    return np.exp(-np.log(2) * age / half_life_days).to_numpy()
+
+
+def _fit_flat(train, validation, features, sample_weight=None):
+    if not features:
+        return None
+    return train_model(
+        train[features],
+        train["Target_Ret"].to_numpy(),
+        validation[features],
+        validation["Target_Ret"].to_numpy(),
+        sample_weight=sample_weight,
+    )
+
+
+def _feature_importance(model, features):
+    booster = model.booster_
+    split = booster.feature_importance(importance_type="split")
+    gain = booster.feature_importance(importance_type="gain")
+    gain_total = gain.sum()
+    return pd.DataFrame(
+        {
+            "feature": features,
+            "importance": gain,
+            "importance_split": split,
+            "importance_gain": gain,
+            "importance_gain_pct": gain / gain_total if gain_total else 0.0,
+        }
+    ).sort_values("importance_gain", ascending=False)
+
+
+def _macro_block_permutation(
+    predictor,
+    frame,
+    macro_features,
+    *,
+    repeats=3,
+    random_state=42,
+):
+    """Measure OOS delta-IC after permuting macro states by whole trade day."""
+    if not macro_features:
+        return {}
+    baseline = _ic(frame["Target_Ret"], predictor(frame))
+    days = pd.to_datetime(frame["date"]).dt.normalize()
+    unique_days = pd.Index(days.unique())
+    rng = np.random.default_rng(random_state)
+    result = {}
+    for feature in macro_features:
+        daily_value = frame.assign(_day=days).groupby("_day")[feature].last()
+        deltas = []
+        for _ in range(repeats):
+            shuffled = daily_value.reindex(rng.permutation(unique_days)).to_numpy()
+            mapping = dict(zip(unique_days, shuffled))
+            permuted = frame.copy()
+            permuted[feature] = days.map(mapping).to_numpy()
+            deltas.append(baseline - _ic(frame["Target_Ret"], predictor(permuted)))
+        finite = [value for value in deltas if np.isfinite(value)]
+        result[feature] = float(np.mean(finite)) if finite else np.nan
+    return dict(sorted(result.items(), key=lambda item: abs(item[1]), reverse=True))
+
+
 def run_process(base_dir, max_lookback_months=9, time_decay_half_life=60):
-    print("\n" + "="*50)
-    print("STEP 3: 模型训练")
-    print("="*50)
+    print("\n" + "=" * 50)
+    print("STEP 3: point-in-time model training")
+    print("=" * 50)
+    factor_file = os.path.join(base_dir, "outputs/df_factors.pkl")
+    prediction_file = os.path.join(base_dir, "outputs/df_predictions.pkl")
+    model_file = os.path.join(base_dir, "models/trained_model.pkl")
+    importance_file = os.path.join(base_dir, "outputs/feature_importance.csv")
+    candidate_prediction_file = os.path.join(
+        base_dir, "outputs/df_predictions_candidate.pkl"
+    )
+    candidate_model_file = os.path.join(
+        base_dir, "models/trained_model_candidate.pkl"
+    )
+    candidate_importance_file = os.path.join(
+        base_dir, "outputs/feature_importance_candidate.csv"
+    )
+    report_file = os.path.join(base_dir, "outputs/model_ablation_report.json")
+    if not os.path.exists(factor_file):
+        print(f"[Model ERROR] missing factor file: {factor_file}")
+        return False
+    os.makedirs(os.path.dirname(model_file), exist_ok=True)
 
-    FACTOR_FILE = os.path.join(base_dir, "outputs/df_factors.pkl")
-    PRED_FILE = os.path.join(base_dir, "outputs/df_predictions.pkl")
-    MODEL_FILE = os.path.join(base_dir, "models/trained_model.pkl")
-    IMPORTANCE_FILE = os.path.join(base_dir, "outputs/feature_importance.csv")
+    raw = pd.read_pickle(factor_file)
+    label_spec = LabelSpec(horizon_bars=30, entry_lag_bars=1, price_col="adj_close")
+    model_frame, _ = prepare_training_data(raw, label_spec=label_spec)
+    split_spec = SplitSpec(validation_days=60, sealed_holdout_days=60, min_train_days=120)
+    train, validation, holdout = split_train_validation_holdout(model_frame, split_spec)
+    if max_lookback_months:
+        cutoff = validation["date"].min() - pd.Timedelta(days=max_lookback_months * 30)
+        train = train.loc[train["date"] >= cutoff].copy()
 
-    if not os.path.exists(FACTOR_FILE):
-        print(f"[Model ERROR] 找不到因子文件: {FACTOR_FILE}")
+    gp_miner = None
+    gp_report = None
+    gp_enabled = os.environ.get("F_AGENT_GENETIC_MINING", "0").strip().lower() in {
+        "1", "true", "yes"
+    }
+    if gp_enabled:
+        from genetic_factor_miner import mine_genetic_factors
+
+        gp_miner, gp_report = mine_genetic_factors(train, validation)
+        if gp_miner.selected_programs_:
+            gp_inputs = gp_miner.feature_names_in_
+            for partition in (train, validation, holdout):
+                generated = gp_miner.transform(partition[gp_inputs])
+                for name in generated:
+                    partition[name] = generated[name]
+            print(f"[Model] GP validation-selected factors: {len(gp_miner.selected_programs_)}")
+        else:
+            print("[Model] GP produced no validation-qualified factors")
+
+    groups = discover_feature_groups(train)
+    all_features = list(groups.all_features)
+    micro_features = list(dict.fromkeys(
+        groups.micro + groups.market + groups.regime + groups.gp
+    ))
+    macro_features = list(groups.macro)
+    if not all_features:
+        raise ValueError("no valid model features")
+    weights = _time_decay_weights(train, time_decay_half_life)
+
+    flat = _fit_flat(train, validation, all_features, weights)
+    micro = _fit_flat(train, validation, micro_features, weights)
+    macro = _fit_flat(train, validation, macro_features, weights) if macro_features else None
+    hierarchy = HierarchicalMacroMicroModel().fit(
+        train, validation, feature_groups=groups
+    )
+
+    validation_predictions = {
+        "flat_combined": flat.predict(validation[all_features]),
+        "micro_only": (
+            micro.predict(validation[micro_features]) if micro is not None else None
+        ),
+        "macro_only": (
+            macro.predict(validation[macro_features]) if macro is not None else None
+        ),
+        "hierarchical": hierarchy.predict(validation),
+    }
+    validation_metrics = {
+        "flat_combined": _ic(
+            validation["Target_Ret"], validation_predictions["flat_combined"]
+        ),
+        "micro_only": (
+            _ic(validation["Target_Ret"], validation_predictions["micro_only"])
+            if micro is not None else np.nan
+        ),
+        "macro_only": (
+            _ic(validation["Target_Ret"], validation_predictions["macro_only"])
+            if macro is not None else np.nan
+        ),
+        "hierarchical": _ic(
+            validation["Target_Ret"], validation_predictions["hierarchical"]
+        ),
+    }
+    validation_stability = {
+        name: _date_block_stability(validation, prediction)
+        for name, prediction in validation_predictions.items()
+        if prediction is not None
+    }
+    deploy_kind = max(
+        ("flat_combined", "hierarchical"),
+        key=lambda name: np.nan_to_num(validation_metrics[name], nan=-np.inf),
+    )
+    if deploy_kind == "hierarchical":
+        holdout_prediction = hierarchy.predict(holdout)
+        predictor = hierarchy.predict
+    else:
+        holdout_prediction = flat.predict(holdout[all_features])
+        predictor = lambda frame: flat.predict(frame[all_features])
+    holdout_ic = _ic(holdout["Target_Ret"], holdout_prediction)
+    selected_stability = validation_stability[deploy_kind]
+    promotion_eligible = _validation_promotion_eligible(selected_stability)
+    release_gate_passed = _release_gate_passed(promotion_eligible, holdout_ic)
+
+    permutation = _macro_block_permutation(
+        predictor, holdout, macro_features, repeats=3
+    )
+    report = {
+        "selection_basis": "validation_only",
+        "sealed_holdout_used_for_selection": False,
+        "selected_model": deploy_kind,
+        "validation_ic": {
+            name: _json_number(value) for name, value in validation_metrics.items()
+        },
+        "validation_stability": validation_stability,
+        "promotion_eligible": promotion_eligible,
+        "release_gate_passed": release_gate_passed,
+        "sealed_holdout_used_for_release_veto": True,
+        "sealed_holdout_ic": _json_number(holdout_ic),
+        "macro_block_permutation_delta_ic": {
+            name: _json_number(value) for name, value in permutation.items()
+        },
+        "train_rows": len(train),
+        "validation_rows": len(validation),
+        "sealed_holdout_rows": len(holdout),
+        "feature_groups": groups.as_dict(),
+        "gp": gp_report,
+    }
+    with open(report_file, "w", encoding="utf-8") as handle:
+        json.dump(report, handle, ensure_ascii=False, indent=2)
+
+    holdout_out = holdout.copy()
+    holdout_out["Pred_Ret"] = holdout_prediction
+    holdout_out["Model_Used"] = deploy_kind
+    if deploy_kind == "hierarchical":
+        components = hierarchy.components(holdout)
+        for name in components:
+            holdout_out[name] = components[name]
+    output_cols = [
+        "date", "trade_dt", "ticker", "close", "adj_close", "Target_Ret",
+        "Pred_Ret", "Market_Regime", "Model_Used", "micro_alpha", "macro_state",
+        "gate_weight", "event_alpha",
+    ]
+    holdout_out[[name for name in output_cols if name in holdout_out]].to_pickle(
+        candidate_prediction_file
+    )
+
+    importance = _feature_importance(flat, all_features)
+    importance.to_csv(
+        candidate_importance_file, index=False, encoding="utf-8-sig"
+    )
+    artifacts = {
+        "artifact_schema_version": 2,
+        "model_base": flat,
+        "model_active": None,
+        "hierarchical_model": hierarchy,
+        "selected_model_kind": deploy_kind,
+        "scaler": IdentityScaler(),
+        "features": all_features,
+        "feature_groups": groups.as_dict(),
+        "gp_miner": gp_miner,
+        "label_spec": label_spec.__dict__,
+        "split_spec": split_spec.__dict__,
+        "validation_metrics": validation_metrics,
+        "validation_stability": validation_stability,
+        "promotion_eligible": promotion_eligible,
+        "release_gate_passed": release_gate_passed,
+        "sealed_holdout_used_for_release_veto": True,
+        "sealed_holdout_metrics": {"ic": holdout_ic},
+        "versions": {
+            "python": platform.python_version(),
+            "pandas": pd.__version__,
+            "scikit_learn": sklearn.__version__,
+            "lightgbm": lgb.__version__,
+        },
+    }
+    with open(candidate_model_file, "wb") as handle:
+        pickle.dump(artifacts, handle)
+
+    print(f"[Model] validation IC: {validation_metrics}")
+    print(f"[Model] selected on validation: {deploy_kind}")
+    print(f"[Model] promotion eligible (>=3/5 positive blocks): {promotion_eligible}")
+    print(f"[Model] sealed holdout IC (reported once): {holdout_ic:.4f}")
+    print(importance.head(15).to_string(index=False))
+    if not release_gate_passed:
+        print(
+            "[Model] RELEASE BLOCKED: candidate kept separately; "
+            "production artifacts were not overwritten"
+        )
         return False
 
-    df = pd.read_pickle(FACTOR_FILE)
-    df_model, features = prepare_training_data(df, prediction_horizon=30)
-
-    print(f"[Model] 总样本数: {len(df_model)}, 特征数: {len(features)}")
-
-    n = len(df_model)
-    train_end = int(n * 0.7)
-    val_end = int(n * 0.85)
-
-    # ---- 时间窗口 + 衰减权重 ----
-    train_df = df_model.iloc[:train_end].copy()
-    val_df = df_model.iloc[train_end:val_end].copy()
-    test_df = df_model.iloc[val_end:].copy()
-
-    # 按日期截断训练集
-    if max_lookback_months:
-        test_start = test_df['date'].min()
-        cutoff = test_start - pd.Timedelta(days=max_lookback_months * 30)
-        train_df = train_df[train_df['date'] >= cutoff].copy()
-        print(f"[Model] 训练窗口: {max_lookback_months}个月 "
-              f"({train_df['date'].min().date()} ~ {train_df['date'].max().date()})")
-
-    # 计算时间衰减权重
-    sample_weight_train = None
-    if time_decay_half_life and len(train_df) > 0:
-        newest = train_df['date'].max()
-        age_days = (newest - train_df['date']).dt.total_seconds() / 86400
-        sample_weight_train = np.exp(-np.log(2) * age_days / time_decay_half_life)
-        print(f"[Model] 时间衰减权重: 半衰{time_decay_half_life}天 "
-              f"(权重范围 [{sample_weight_train.min():.3f}, {sample_weight_train.max():.3f}])")
-
-    print(f"[Model] 训练集: {len(train_df)} ({len(train_df)/n:.1%})")
-    print(f"[Model] 验证集: {len(val_df)} ({len(val_df)/n:.1%})")
-    print(f"[Model] 测试集: {len(test_df)} ({len(test_df)/n:.1%})")
-    
-    scaler = RobustScaler()
-    X_train = scaler.fit_transform(train_df[features])
-    X_val = scaler.transform(val_df[features])
-    X_test = scaler.transform(test_df[features])
-    
-    y_train = train_df['Target_Ret'].values
-    y_val = val_df['Target_Ret'].values
-    y_test = test_df['Target_Ret'].values
-    
-    regime_train = train_df['Market_Regime'].values if 'Market_Regime' in train_df.columns else np.zeros(len(train_df))
-    regime_val = val_df['Market_Regime'].values if 'Market_Regime' in val_df.columns else np.zeros(len(val_df))
-    regime_test = test_df['Market_Regime'].values if 'Market_Regime' in test_df.columns else np.zeros(len(test_df))
-    
-    # === 训练高波动市 + 趋势市模型 ===
-    print("\n[Model] 训练高波动/趋势市模型...")
-    active_mask_train = np.isin(regime_train, [1, 2])
-    active_mask_val = np.isin(regime_val, [1, 2])
-    
-    model_active = None
-    if active_mask_train.sum() > 1000:
-        X_train_active = X_train[active_mask_train]
-        y_train_active = y_train[active_mask_train]
-        X_val_active = X_val[active_mask_val] if active_mask_val.sum() > 0 else X_val[:100]
-        y_val_active = y_val[active_mask_val] if active_mask_val.sum() > 0 else y_val[:100]
-        
-        sw_active = sample_weight_train[active_mask_train] if sample_weight_train is not None else None
-        model_active = train_model(X_train_active, y_train_active, X_val_active, y_val_active, 'highvol', sw_active)
-        
-        train_pred_active = model_active.predict(X_train_active)
-        train_ic_active = np.corrcoef(y_train_active, train_pred_active)[0, 1]
-        print(f"  高波动/趋势市训练集 IC: {train_ic_active:.4f}")
-    
-    # === 训练基础模型 ===
-    print("\n[Model] 训练基础模型...")
-    model_base = train_model(X_train, y_train, X_val, y_val, 'base', sample_weight_train)
-    
-    y_val_pred = model_base.predict(X_val)
-    val_ic = np.corrcoef(y_val, y_val_pred)[0, 1]
-    print(f"  基础模型验证集 IC: {val_ic:.4f}")
-    
-    # === 测试集预测 ===
-    print("\n[Model] 测试集预测...")
-    y_test_pred = np.zeros(len(y_test))
-    
-    # 高波动/趋势市用专用模型
-    active_mask_test = np.isin(regime_test, [1, 2])
-    if model_active is not None and active_mask_test.sum() > 0:
-        y_test_pred[active_mask_test] = model_active.predict(X_test[active_mask_test])
-    
-    # 其他市场用基础模型
-    other_mask_test = ~active_mask_test
-    y_test_pred[other_mask_test] = model_base.predict(X_test[other_mask_test])
-    
-    test_ic = np.corrcoef(y_test, y_test_pred)[0, 1]
-    print(f"\n[Model] 测试集整体 IC: {test_ic:.4f}")
-    
-    print(f"\n[Model] 分状态 IC 分析:")
-    for regime_id in [0, 1, 2]:
-        mask = (regime_test == regime_id)
-        if mask.sum() > 10:
-            regime_ic = np.corrcoef(y_test[mask], y_test_pred[mask])[0, 1]
-            regime_name = ['正常', '高波动', '趋势'][regime_id]
-            print(f"  - {regime_name}: IC={regime_ic:.4f}, 样本数={mask.sum()}")
-    
-    # 保存预测
-    test_df_out = test_df.copy()
-    test_df_out['Pred_Ret'] = y_test_pred
-    test_df_out['Should_Trade'] = np.isin(test_df_out['Market_Regime'], [1, 2]).astype(int)
-    
-    output_cols = ['date', 'trade_dt', 'ticker', 'close', 'Target_Ret', 'Pred_Ret', 
-                   'oi', 'volume', 'money', 'Market_Regime', 'Should_Trade']
-    available_cols = [c for c in output_cols if c in test_df_out.columns]
-    test_df_out[available_cols].to_pickle(PRED_FILE)
-    
-    print(f"\n[Model] 测试集预测已保存: {PRED_FILE}")
-    
-    # 保存模型
-    with open(MODEL_FILE, 'wb') as f:
-        pickle.dump({
-            'model_active': model_active,
-            'model_base': model_base,
-            'scaler': scaler,
-            'features': features
-        }, f)
-    
-    # 特征重要性
-    importance_df = pd.DataFrame({
-        'feature': features,
-        'importance': model_base.feature_importances_
-    }).sort_values('importance', ascending=False)
-    importance_df.to_csv(IMPORTANCE_FILE, index=False, encoding='utf-8-sig')
-    
-    print(f"\n[Model] Top 15 重要特征:")
-    print(importance_df.head(15).to_string(index=False))
-    
+    os.replace(candidate_prediction_file, prediction_file)
+    os.replace(candidate_importance_file, importance_file)
+    os.replace(candidate_model_file, model_file)
+    print("[Model] release gate passed; production artifacts promoted atomically")
     return True

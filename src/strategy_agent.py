@@ -330,10 +330,10 @@ class MarketAnalyzer:
         lines.append("")
         lines.append("  —— 宏观动量 ——")
         macro_items = [
-            ('PMI_ZScore', 'PMI Z-Score'),
-            ('CPI_Momentum', 'CPI 动量'),
-            ('M2_Surprise', 'M2 超预期'),
-            ('Macro_Surprise_Composite', '宏观综合意外'),
+            ('PMI_State_ZScore', 'PMI 状态 Z-Score'),
+            ('CPI_Acceleration_3M', 'CPI 三月加速度'),
+            ('M2_State_ZScore', 'M2 状态 Z-Score'),
+            ('Macro_State_Composite', '宏观综合状态'),
         ]
         for col, label in macro_items:
             if col in df.columns:
@@ -346,7 +346,8 @@ class MarketAnalyzer:
         # Macro factor data range
         if mf is not None and len(mf) > 0:
             lines.append(f"")
-            lines.append(f"  宏观因子历史: {mf['available_date'].min()} ~ {mf['available_date'].max()}")
+            availability_col = 'available_ts' if 'available_ts' in mf else 'available_date'
+            lines.append(f"  宏观因子历史: {mf[availability_col].min()} ~ {mf[availability_col].max()}")
 
         lines.append("=" * 56)
         return "\n".join(lines)

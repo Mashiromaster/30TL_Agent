@@ -1,580 +1,302 @@
 # -*- coding: utf-8 -*-
-# genetic_factor_miner.py — 遗传规划 + 符号回归因子挖掘
-#
-# 使用 gplearn 的遗传规划引擎，自动发现新的非线性因子表达式。
-# 核心创新：
-#   1. IC-based 适应度函数 — 斯皮尔曼 Rank IC 作为选择压力
-#   2. 多目标优化 — IC + 低相关性（去冗余）
-#   3. 与现有因子体系无缝集成
-#
-# 参考文献:
-#   - GP-Alpha-Miner (SSRN 2022) — GP 因子挖掘框架
-#   - gplearn (Stephens 2016) — Python genetic programming
-#   - Kakushadze & Yu (2016) — 101 Formulaic Alphas
+"""Train-only symbolic factor discovery with validation-only selection."""
 
-import pandas as pd
-import numpy as np
+from __future__ import annotations
+
+import argparse
 import os
-import sys
-import warnings
-import json
 import pickle
-from datetime import datetime
-from collections import defaultdict
+from dataclasses import dataclass
 
-from gplearn.genetic import SymbolicTransformer
-from gplearn.functions import make_function, log1, sqrt1, sig1, abs1
-from sklearn.preprocessing import StandardScaler
+import numpy as np
+import pandas as pd
 from scipy import stats
+from sklearn.preprocessing import StandardScaler
+from sklearn.utils.validation import validate_data
 
-warnings.filterwarnings('ignore')
-
-BASE_DIR = r"D:\桌面\F_Agent"
-OUTPUT_DIR = os.path.join(BASE_DIR, "outputs")
-CACHE_DIR = os.path.join(OUTPUT_DIR, "genetic_factors")
-os.makedirs(CACHE_DIR, exist_ok=True)
-
-# ============================================================
-# 自定义时序函数
-# ============================================================
-
-def _ts_rank(x, window):
-    """时间序列滚动百分位排名 — 处理全零输入"""
-    x = np.asarray(x, dtype=float)
-    result = np.full_like(x, 0.5)  # 默认返回 0.5（中位排名）
-    w = int(window)
-    if len(x) < w:
-        return result
-    for i in range(len(x)):
-        if i < w - 1:
-            continue
-        window_data = x[max(0, i - w + 1):i + 1]
-        if np.all(window_data == 0) or np.std(window_data) < 1e-12:
-            result[i] = 0.5
-            continue
-        rank = stats.rankdata(window_data, nan_policy='omit')
-        result[i] = rank[-1] / len(rank)
-    return result
-
-def _ts_mean(x, window):
-    """滚动均值"""
-    x = np.asarray(x, dtype=float)
-    result = np.full_like(x, 0.0)  # 默认 0
-    w = int(window)
-    for i in range(len(x)):
-        if i < w - 1:
-            continue
-        val = np.nanmean(x[max(0, i - w + 1):i + 1])
-        result[i] = 0.0 if np.isnan(val) else val
-    return result
-
-def _ts_std(x, window):
-    """滚动标准差"""
-    x = np.asarray(x, dtype=float)
-    result = np.full_like(x, 0.0)
-    w = int(window)
-    for i in range(len(x)):
-        if i < w - 1:
-            continue
-        val = np.nanstd(x[max(0, i - w + 1):i + 1])
-        result[i] = 0.0 if np.isnan(val) else val
-    return result
-
-def _ts_delta(x, window):
-    """滚动差值"""
-    x = np.asarray(x, dtype=float)
-    result = np.full_like(x, 0.0)
-    w = int(window)
-    if len(x) < w + 1:
-        return result
-    for i in range(len(x)):
-        if i < w:
-            continue
-        result[i] = x[i] - x[i - w]
-    return result
-
-def _ts_max(x, window):
-    """滚动最大值"""
-    x = np.asarray(x, dtype=float)
-    result = np.full_like(x, 0.0)
-    w = int(window)
-    for i in range(len(x)):
-        if i < w - 1:
-            continue
-        val = np.nanmax(x[max(0, i - w + 1):i + 1])
-        result[i] = 0.0 if np.isnan(val) else val
-    return result
-
-def _ts_min(x, window):
-    """滚动最小值"""
-    x = np.asarray(x, dtype=float)
-    result = np.full_like(x, 0.0)
-    w = int(window)
-    for i in range(len(x)):
-        if i < w - 1:
-            continue
-        val = np.nanmin(x[max(0, i - w + 1):i + 1])
-        result[i] = 0.0 if np.isnan(val) else val
-    return result
-
-def _sign(x):
-    """符号函数"""
-    return np.sign(x)
-
-def _abs_np(x):
-    """绝对值"""
-    return np.abs(x)
-
-def _relu(x):
-    """ReLU 激活"""
-    return np.maximum(0, x)
+try:
+    from gplearn.functions import abs1, log1, make_function, sig1, sqrt1
+    from gplearn.genetic import SymbolicTransformer
+except ImportError:  # pragma: no cover - exercised by deployment environments
+    SymbolicTransformer = None
 
 
-# ============================================================
-# 注册函数到 gplearn function set
-# 使用 gplearn 内置保护函数 (sqrt1, log1 自带 NaN/Inf 保护)
-# ============================================================
-
-sign_func  = make_function(function=_sign,   name='sign', arity=1)
-relu_func  = make_function(function=_relu,   name='relu', arity=1)
-
-ts_rank_5   = make_function(function=lambda x: _ts_rank(x, 5),   name='ts_rank_5',  arity=1)
-ts_rank_20  = make_function(function=lambda x: _ts_rank(x, 20),  name='ts_rank_20', arity=1)
-ts_mean_5   = make_function(function=lambda x: _ts_mean(x, 5),   name='ts_mean_5',  arity=1)
-ts_mean_20  = make_function(function=lambda x: _ts_mean(x, 20),  name='ts_mean_20', arity=1)
-ts_std_5    = make_function(function=lambda x: _ts_std(x, 5),    name='ts_std_5',   arity=1)
-ts_std_20   = make_function(function=lambda x: _ts_std(x, 20),   name='ts_std_20',  arity=1)
-ts_delta_5  = make_function(function=lambda x: _ts_delta(x, 5),  name='ts_delta_5', arity=1)
-ts_delta_20 = make_function(function=lambda x: _ts_delta(x, 20), name='ts_delta_20',arity=1)
-ts_max_20  = make_function(function=lambda x: _ts_max(x, 20),   name='ts_max_20',  arity=1)
-ts_min_20  = make_function(function=lambda x: _ts_min(x, 20),   name='ts_min_20',  arity=1)
-
-CUSTOM_FUNCTIONS = [
-    sqrt1, log1, sig1, abs1, sign_func, relu_func,
-    ts_rank_5, ts_rank_20, ts_mean_5, ts_mean_20,
-    ts_std_5, ts_std_20, ts_delta_5, ts_delta_20,
-    ts_max_20, ts_min_20,
-]
+def _sign(values):
+    return np.sign(values)
 
 
-# ============================================================
-# IC-based 适应度函数
-# ============================================================
-
-def _ic_fitness(y_true, y_pred, w=None):
-    """
-    斯皮尔曼 Rank IC 作为适应度。
-
-    在量化因子挖掘中，MSE 是错误的目标：
-    - MSE 惩罚预测值的大小偏差 → 优化出接近常数的"安全"因子
-    - IC 只关心排序方向 → 真正选出有预测能力的因子
-
-    返回 [IC_signed, IC_abs] 两个适应度分数（gplearn 支持多目标）
-    """
-    mask = ~(np.isnan(y_true) | np.isnan(y_pred))
-    if mask.sum() < 30:
-        return [-1e-6, 1e-6]
-
-    yt = y_true[mask]
-    yp = y_pred[mask]
-
-    yt_clip = np.clip(yt, np.percentile(yt, 1), np.percentile(yt, 99))
-    yp_clip = np.clip(yp, np.percentile(yp, 1), np.percentile(yp, 99))
-
-    if np.std(yp_clip) < 1e-12:
-        return [-1e-6, 1e-6]
-
-    ic, _ = stats.spearmanr(yt_clip, yp_clip)
-    if np.isnan(ic):
-        return [-1e-6, 1e-6]
-
-    return [ic, abs(ic)]
+def _relu(values):
+    return np.maximum(values, 0)
 
 
-# ============================================================
-# 因子去重与后处理
-# ============================================================
+if SymbolicTransformer is not None:
+    SIGN = make_function(function=_sign, name="sign", arity=1)
+    RELU = make_function(function=_relu, name="relu", arity=1)
+    FUNCTION_SET = ("add", "sub", "mul", "div", sqrt1, log1, sig1, abs1, SIGN, RELU)
 
-def _deduplicate_factors(df_factors, threshold=0.92):
-    """基于相关系数去重"""
-    factor_cols = [c for c in df_factors.columns if c.startswith('GP_')]
-    if len(factor_cols) <= 1:
-        return df_factors, []
+    class CompatibleSymbolicTransformer(SymbolicTransformer):
+        """Compatibility shim for gplearn 0.4.2 on newer scikit-learn."""
 
-    corr_matrix = df_factors[factor_cols].corr().abs()
-    removed = []
-    kept = set(factor_cols)
-
-    for i in range(len(factor_cols)):
-        for j in range(i + 1, len(factor_cols)):
-            fi, fj = factor_cols[i], factor_cols[j]
-            if fi not in kept or fj not in kept:
-                continue
-            if corr_matrix.loc[fi, fj] >= threshold:
-                loser = fj if len(fj) > len(fi) else fi
-                if loser in kept:
-                    kept.discard(loser)
-                    removed.append(loser)
-
-    drop_cols = [c for c in factor_cols if c not in kept]
-    if drop_cols:
-        print(f"[GP Mine] 去重: 移除 {len(drop_cols)} 个高相关因子")
-    return df_factors.drop(columns=drop_cols, errors='ignore'), removed
+        def _validate_data(self, X, y=None, **kwargs):
+            return validate_data(self, X, y, **kwargs)
+else:
+    FUNCTION_SET = ()
+    CompatibleSymbolicTransformer = None
 
 
-def _rank_factors_by_ic(df_factors, target_col='Target_Ret'):
-    """按 IC 绝对值排序因子"""
-    factor_cols = [c for c in df_factors.columns if c.startswith('GP_')]
-    if not factor_cols:
-        return []
-
-    mask = df_factors[target_col].notna()
-    rankings = []
-    for col in factor_cols:
-        valid = mask & df_factors[col].notna()
-        if valid.sum() < 50:
-            continue
-        ic, _ = stats.spearmanr(
-            df_factors.loc[valid, target_col],
-            df_factors.loc[valid, col]
-        )
-        rankings.append((col, ic, abs(ic)))
-
-    rankings.sort(key=lambda x: -x[2])
-    return rankings
+@dataclass(frozen=True)
+class SelectedProgram:
+    candidate_index: int
+    name: str
+    expression: str
+    validation_ic: float
+    complexity: int
 
 
-def _simplify_program_name(prog_str, feature_names):
-    """简化表达式名"""
-    max_len = 30
-    if len(prog_str) <= max_len:
-        return prog_str
-    short = prog_str.replace('(', '').replace(')', '').replace(' ', '_')
-    return short[:max_len]
+def _rank_ic(left, right, min_samples=30):
+    pair = pd.DataFrame({"left": left, "right": right}).replace(
+        [np.inf, -np.inf], np.nan
+    ).dropna()
+    if len(pair) < min_samples or pair["left"].nunique() < 2:
+        return np.nan
+    return float(stats.spearmanr(pair["left"], pair["right"]).statistic)
 
-
-# ============================================================
-# 核心挖掘类
-# ============================================================
 
 class GeneticFactorMiner:
-    """遗传规划因子挖掘器"""
+    """Discover candidates on training data, then freeze validation winners."""
 
     def __init__(
         self,
-        population_size=2000,
-        generations=25,
-        tournament_size=20,
-        parsimony_coefficient=0.001,
-        max_samples=0.5,
+        population_size=1500,
+        generations=15,
+        hall_of_fame=100,
+        n_components=50,
+        parsimony_coefficient=0.002,
+        max_samples=0.7,
         random_state=42,
         n_jobs=-1,
-        init_depth=(2, 5),
-        const_range=(-5.0, 5.0),
-        p_crossover=0.7,
-        p_subtree_mutation=0.1,
-        p_hoist_mutation=0.05,
-        p_point_mutation=0.1,
     ):
         self.population_size = population_size
         self.generations = generations
-        self.tournament_size = tournament_size
+        self.hall_of_fame = min(hall_of_fame, population_size)
+        self.n_components = min(n_components, self.hall_of_fame)
         self.parsimony_coefficient = parsimony_coefficient
         self.max_samples = max_samples
         self.random_state = random_state
         self.n_jobs = n_jobs
-        self.init_depth = init_depth
-        self.const_range = const_range
-        self.p_crossover = p_crossover
-        self.p_subtree_mutation = p_subtree_mutation
-        self.p_hoist_mutation = p_hoist_mutation
-        self.p_point_mutation = p_point_mutation
+        self.selected_programs_: tuple[SelectedProgram, ...] = ()
 
-        self._transformer = None
-        self._best_programs = []
+    @staticmethod
+    def _require_dependency():
+        if CompatibleSymbolicTransformer is None:
+            raise RuntimeError(
+                "gplearn is required for GP discovery; install project requirements"
+            )
 
-    def fit(self, X, y, feature_names=None):
-        """运行遗传规划因子挖掘"""
-        if isinstance(X, pd.DataFrame):
-            feature_names = feature_names or list(X.columns)
-            X_arr = X.values
-        else:
-            X_arr = X
-            feature_names = feature_names or [f'F_{i}' for i in range(X_arr.shape[1])]
+    def _validate_frame(self, X, *, fitting=False):
+        if not isinstance(X, pd.DataFrame):
+            raise TypeError("X must be a pandas DataFrame with a stable schema")
+        non_numeric = [
+            name for name in X.columns
+            if not pd.api.types.is_numeric_dtype(X[name])
+        ]
+        if non_numeric:
+            raise ValueError(f"GP inputs must be numeric: {non_numeric}")
+        names = list(X.columns)
+        if fitting:
+            self.feature_names_in_ = names
+        elif names != self.feature_names_in_:
+            raise ValueError(
+                f"GP feature schema/order changed: expected {self.feature_names_in_}, got {names}"
+            )
+        return X.replace([np.inf, -np.inf], np.nan).fillna(0.0).to_numpy(dtype=float)
 
-        if isinstance(y, pd.Series):
-            y_arr = y.values
-        else:
-            y_arr = y
-
-        X_arr = np.nan_to_num(X_arr, nan=0.0, posinf=0.0, neginf=0.0)
-        y_arr = np.nan_to_num(y_arr, nan=0.0, posinf=0.0, neginf=0.0)
-
-        scaler = StandardScaler()
-        X_arr = scaler.fit_transform(X_arr)
-
-        print(f"[GP Mine] 开始遗传规划挖掘...")
-        print(f"  输入: {X_arr.shape[1]} 特征, {X_arr.shape[0]} 样本")
-        print(f"  种群: {self.population_size}, 代数: {self.generations}")
-
-        self._transformer = SymbolicTransformer(
+    def fit(self, X: pd.DataFrame, y):
+        """Discover symbolic candidates using discovery-train data only."""
+        self._require_dependency()
+        matrix = self._validate_frame(X, fitting=True)
+        target = pd.to_numeric(pd.Series(y, index=X.index), errors="coerce")
+        valid = target.notna().to_numpy()
+        if valid.sum() < 100:
+            raise ValueError("GP discovery requires at least 100 labelled rows")
+        self.scaler_ = StandardScaler().fit(matrix[valid])
+        scaled = self.scaler_.transform(matrix[valid])
+        self.transformer_ = CompatibleSymbolicTransformer(
             population_size=self.population_size,
             generations=self.generations,
-            tournament_size=self.tournament_size,
-            function_set=CUSTOM_FUNCTIONS,
+            tournament_size=min(20, self.population_size),
+            hall_of_fame=self.hall_of_fame,
+            n_components=self.n_components,
+            function_set=FUNCTION_SET,
+            metric="spearman",
             parsimony_coefficient=self.parsimony_coefficient,
             max_samples=self.max_samples,
-            init_depth=self.init_depth,
-            const_range=self.const_range,
-            p_crossover=self.p_crossover,
-            p_subtree_mutation=self.p_subtree_mutation,
-            p_hoist_mutation=self.p_hoist_mutation,
-            p_point_mutation=self.p_point_mutation,
-            metric=_ic_fitness,
+            init_depth=(2, 5),
+            const_range=(-3.0, 3.0),
+            p_crossover=0.7,
+            p_subtree_mutation=0.1,
+            p_hoist_mutation=0.05,
+            p_point_mutation=0.1,
+            stopping_criteria=0.2,
             random_state=self.random_state,
             n_jobs=self.n_jobs,
-            verbose=1,
-            feature_names=feature_names,
-            stopping_criteria=0.01,
+            verbose=0,
+            feature_names=self.feature_names_in_,
         )
-
-        self._transformer.fit(X_arr, y_arr)
-        self._best_programs = self._transformer._best_programs
-
-        print(f"[GP Mine] 挖掘完成 — 发现 {len(self._best_programs)} 个候选因子")
+        self.transformer_.fit(scaled, target.to_numpy()[valid])
+        self.selected_programs_ = ()
         return self
 
-    def transform(self, X):
-        """使用挖掘出的因子程序转换数据"""
-        if self._transformer is None:
-            raise RuntimeError("请先调用 fit()")
+    def _candidate_frame(self, X):
+        if not hasattr(self, "transformer_"):
+            raise RuntimeError("call fit on discovery-train data first")
+        matrix = self._validate_frame(X)
+        scaled = self.scaler_.transform(matrix)
+        values = self.transformer_.transform(scaled)
+        values = np.nan_to_num(values, nan=0.0, posinf=0.0, neginf=0.0)
+        return pd.DataFrame(
+            values,
+            index=X.index,
+            columns=[f"GP_CANDIDATE_{index:03d}" for index in range(values.shape[1])],
+        )
 
-        if isinstance(X, pd.DataFrame):
-            X_arr = X.values
-        else:
-            X_arr = X
+    def select(
+        self,
+        X_validation: pd.DataFrame,
+        y_validation,
+        *,
+        min_abs_ic=0.01,
+        max_factors=20,
+        max_correlation=0.9,
+    ):
+        """Select and freeze candidates using validation data only."""
+        candidates = self._candidate_frame(X_validation)
+        target = pd.to_numeric(
+            pd.Series(y_validation, index=X_validation.index), errors="coerce"
+        )
+        programs = list(self.transformer_._best_programs)
+        ranked = []
+        for index, name in enumerate(candidates.columns):
+            ic = _rank_ic(candidates[name], target)
+            if np.isnan(ic) or abs(ic) < min_abs_ic:
+                continue
+            expression = str(programs[index])
+            ranked.append((index, ic, len(expression), expression))
+        ranked.sort(key=lambda item: (-abs(item[1]), item[2]))
 
-        X_arr = np.nan_to_num(X_arr, nan=0.0, posinf=0.0, neginf=0.0)
-        scaler = StandardScaler()
-        X_arr = scaler.fit_transform(X_arr)
+        selected = []
+        selected_values = []
+        for index, ic, complexity, expression in ranked:
+            value = candidates.iloc[:, index]
+            if any(abs(value.corr(previous, method="spearman")) >= max_correlation
+                   for previous in selected_values):
+                continue
+            selected.append(
+                SelectedProgram(
+                    candidate_index=index,
+                    name=f"GP_{len(selected):03d}",
+                    expression=expression,
+                    validation_ic=round(ic, 6),
+                    complexity=complexity,
+                )
+            )
+            selected_values.append(value)
+            if len(selected) >= max_factors:
+                break
+        self.selected_programs_ = tuple(selected)
+        return self
 
-        result = self._transformer.transform(X_arr)
-
-        cols = []
-        for i, program in enumerate(self._best_programs):
-            prog_str = str(program)
-            short_name = _simplify_program_name(prog_str, [])
-            col_name = f"GP_{i:03d}_{short_name}"
-            cols.append(col_name[:60])
-
-        df = pd.DataFrame(result, columns=cols)
-        return df
-
-    def fit_transform(self, X, y, feature_names=None):
-        """fit + transform"""
-        self.fit(X, y, feature_names)
-        return self.transform(X)
-
-    def get_factor_programs(self):
-        """返回发现的因子程序列表"""
-        return [
+    def transform(self, X: pd.DataFrame):
+        """Apply the frozen training scaler and selected programs."""
+        if not self.selected_programs_:
+            raise RuntimeError("call select on validation data before transform")
+        candidates = self._candidate_frame(X)
+        return pd.DataFrame(
             {
-                'index': i,
-                'program': str(p),
-                'length': len(str(p)),
-                'fitness': float(p.fitness_) if hasattr(p, 'fitness_') else None,
-            }
-            for i, p in enumerate(self._best_programs)
-        ]
-
-    def save(self, path=None):
-        """持久化挖掘结果"""
-        if path is None:
-            ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-            path = os.path.join(CACHE_DIR, f"genetic_programs_{ts}.pkl")
-
-        data = {
-            'best_programs': [str(p) for p in self._best_programs],
-            'config': {
-                'population_size': self.population_size,
-                'generations': self.generations,
-                'random_state': self.random_state,
+                selected.name: candidates.iloc[:, selected.candidate_index]
+                for selected in self.selected_programs_
             },
-            'timestamp': datetime.now().isoformat(),
+            index=X.index,
+        )
+
+    def report(self):
+        return {
+            "selection_basis": "validation_only",
+            "feature_names": list(self.feature_names_in_),
+            "programs": [program.__dict__ for program in self.selected_programs_],
         }
-        with open(path, 'wb') as f:
-            pickle.dump(data, f)
-        print(f"[GP Mine] 已保存到: {path}")
-        return path
+
+    def save(self, path):
+        with open(path, "wb") as handle:
+            pickle.dump(self, handle)
 
 
-# ============================================================
-# 一键挖掘封装
-# ============================================================
+def _gp_input_columns(frame, target_col):
+    excluded = {
+        target_col, "date", "trade_dt", "ticker", "open", "high", "low",
+        "close", "adj_close", "volume", "money", "oi", "label_start_ts",
+        "label_end_ts", "label_valid", "Hour", "Minute", "Minute_of_Day",
+    }
+    return [
+        name for name in frame.select_dtypes(include=[np.number, "bool"]).columns
+        if name not in excluded and not name.startswith(("_", "GP_"))
+        and frame[name].dropna().nunique() > 1
+    ]
+
 
 def mine_genetic_factors(
-    df_factors,
-    target_col='Target_Ret',
-    exclude_patterns=None,
+    discovery_train: pd.DataFrame,
+    validation: pd.DataFrame,
+    *,
+    target_col="Target_Ret",
     population_size=1500,
-    generations=20,
-    max_new_factors=30,
+    generations=15,
+    max_new_factors=20,
     min_ic_threshold=0.01,
 ):
-    """一键遗传因子挖掘"""
-
-    if exclude_patterns is None:
-        exclude_patterns = [
-            'date', 'ticker', 'open', 'high', 'low', 'close', 'volume',
-            'money', 'oi', 'Target_Ret', 'Pred_Ret', 'Market_Regime',
-            'Hour', 'Minute', 'Minute_of_Day', 'Trades',
-        ]
-
-    print("\n" + "=" * 60)
-    print("  遗传规划因子挖掘 (Genetic Programming Factor Mining)")
-    print("=" * 60)
-
-    # 1. 确定输入特征
-    feature_cols = []
-    for c in df_factors.columns:
-        skip = False
-        for pat in exclude_patterns:
-            if pat in c or c.startswith('_') or c.startswith('GP_'):
-                skip = True
-                break
-        if not skip:
-            feature_cols.append(c)
-
-    print(f"[GP Mine] 输入特征: {len(feature_cols)} 个")
-
-    # 2. 准备数据
-    df_clean = df_factors.dropna(subset=[target_col]).copy()
-    df_clean = df_clean.replace([np.inf, -np.inf], np.nan).ffill().fillna(0)
-
-    X = df_clean[feature_cols].values
-    y = df_clean[target_col].values
-
-    print(f"[GP Mine] 有效样本: {len(df_clean)} 行")
-
-    if len(df_clean) < 500:
-        print("[GP Mine ERROR] 样本量不足")
-        return df_factors, {'error': 'insufficient_samples', 'n_samples': len(df_clean)}
-
-    # 3. 运行挖掘
+    """Fit on discovery train, select on validation, and return a frozen miner."""
+    if target_col not in discovery_train or target_col not in validation:
+        raise ValueError("both discovery_train and validation need a pre-built target")
+    columns = _gp_input_columns(discovery_train, target_col)
+    missing = [name for name in columns if name not in validation]
+    if missing:
+        raise ValueError(f"validation is missing GP inputs: {missing}")
     miner = GeneticFactorMiner(
         population_size=population_size,
         generations=generations,
-        random_state=42,
+        hall_of_fame=max(max_new_factors * 3, max_new_factors),
+        n_components=max(max_new_factors * 2, max_new_factors),
     )
-    df_new = miner.fit_transform(X, y, feature_names=feature_cols)
+    miner.fit(discovery_train[columns], discovery_train[target_col])
+    miner.select(
+        validation[columns],
+        validation[target_col],
+        min_abs_ic=min_ic_threshold,
+        max_factors=max_new_factors,
+    )
+    return miner, miner.report()
 
-    # 4. 合并
-    df_result = df_clean.copy()
-    for col in df_new.columns:
-        df_result[col] = df_new[col].values
-
-    # 5. 去重
-    df_result, removed = _deduplicate_factors(df_result)
-
-    # 6. IC 排名
-    rankings = _rank_factors_by_ic(df_result, target_col)
-    print(f"\n[GP Mine] 因子排名 (按 |IC|):")
-    for name, ic, abs_ic in rankings[:20]:
-        flag = " ✓" if abs_ic >= min_ic_threshold else ""
-        print(f"  {name}: IC={ic:+.4f}  |IC|={abs_ic:.4f}{flag}")
-
-    # 7. 过滤
-    good_factors = [name for name, _, abs_ic in rankings if abs_ic >= min_ic_threshold]
-    good_factors = good_factors[:max_new_factors]
-    bad_factors = [c for c in df_result.columns if c.startswith('GP_') and c not in good_factors]
-
-    if bad_factors:
-        df_result = df_result.drop(columns=bad_factors, errors='ignore')
-
-    # 8. 报告
-    report = {
-        'n_input_features': len(feature_cols),
-        'n_samples': len(df_clean),
-        'n_candidates': len(df_new.columns),
-        'n_after_dedup': len(df_new.columns) - len(removed),
-        'n_final': len(good_factors),
-        'final_factors': good_factors,
-        'rankings': rankings[:30],
-        'programs': miner.get_factor_programs()[:30],
-        'timestamp': datetime.now().isoformat(),
-    }
-
-    print(f"\n[GP Mine] 最终保留: {len(good_factors)} 个因子")
-    for f in good_factors:
-        print(f"  → {f}")
-
-    # 9. 对齐回原始 df_factors
-    final_new_cols = [c for c in df_result.columns if c.startswith('GP_')]
-    if final_new_cols:
-        df_out = df_factors.copy()
-        for col in final_new_cols:
-            df_out[col] = np.nan
-            common = df_factors.index.intersection(df_result.index)
-            if len(common) > 0:
-                df_out.loc[common, col] = df_result.loc[common, col]
-            df_out[col] = df_out[col].ffill().fillna(0)
-        print(f"[GP Mine] 已将 {len(final_new_cols)} 个新因子合并")
-    else:
-        df_out = df_factors
-        print("[GP Mine WARNING] 没有通过 IC 门槛的因子")
-
-    print("=" * 60 + "\n")
-    return df_out, report
-
-
-# ============================================================
-# CLI 入口
-# ============================================================
 
 def main():
-    import argparse
-    parser = argparse.ArgumentParser(description='Genetic Factor Mining')
-    parser.add_argument('--data', type=str, help='Path to factor dataframe pickle')
-    parser.add_argument('--population', type=int, default=1500)
-    parser.add_argument('--generations', type=int, default=20)
-    parser.add_argument('--min-ic', type=float, default=0.01)
-    parser.add_argument('--max-factors', type=int, default=30)
-    parser.add_argument('--save', action='store_true', default=True)
+    parser = argparse.ArgumentParser(description="Leakage-safe GP factor discovery")
+    parser.add_argument("--data", required=True)
+    parser.add_argument("--output", required=True)
+    parser.add_argument("--population", type=int, default=1500)
+    parser.add_argument("--generations", type=int, default=15)
     args = parser.parse_args()
+    from training_data import LabelSpec, SplitSpec, build_forward_labels, split_train_validation_holdout
 
-    if args.data and os.path.exists(args.data):
-        df = pd.read_pickle(args.data)
-    else:
-        default_path = os.path.join(OUTPUT_DIR, "factor_df.pkl")
-        if os.path.exists(default_path):
-            df = pd.read_pickle(default_path)
-        else:
-            print("[GP Mine ERROR] 请指定 --data")
-            sys.exit(1)
-
-    print(f"[GP Mine] 数据: {len(df)} 行, {len(df.columns)} 列")
-    if 'Target_Ret' not in df.columns:
-        print("[GP Mine ERROR] 缺少 Target_Ret")
-        sys.exit(1)
-
-    df_new, report = mine_genetic_factors(
-        df, target_col='Target_Ret',
+    labelled = build_forward_labels(pd.read_pickle(args.data), LabelSpec())
+    train, validation, _ = split_train_validation_holdout(labelled, SplitSpec())
+    miner, report = mine_genetic_factors(
+        train,
+        validation,
         population_size=args.population,
         generations=args.generations,
-        min_ic_threshold=args.min_ic,
-        max_new_factors=args.max_factors,
     )
-
-    if args.save:
-        output_path = os.path.join(OUTPUT_DIR, "genetic_factors_result.pkl")
-        df_new.to_pickle(output_path)
-        print(f"[GP Mine] 已保存: {output_path}")
-
-        report_path = os.path.join(CACHE_DIR, "genetic_report.json")
-        with open(report_path, 'w', encoding='utf-8') as f:
-            json.dump(report, f, indent=2, ensure_ascii=False, default=str)
-        print(f"[GP Mine] 报告已保存: {report_path}")
+    miner.save(args.output)
+    print(report)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

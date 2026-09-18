@@ -258,10 +258,10 @@ class LLMAnalyzer:
             macro_keys = [
                 ('YC_Slope_30Y_10Y', '30Y-10Y期限利差'),
                 ('CN_US_10Y_Spread', '中美10Y利差'),
-                ('PMI_ZScore', 'PMI Z-Score'),
-                ('CPI_Momentum', 'CPI 动量'),
-                ('M2_Surprise', 'M2 超预期'),
-                ('Macro_Surprise_Composite', '宏观综合意外'),
+                ('PMI_State_ZScore', 'PMI 状态 Z-Score'),
+                ('CPI_Acceleration_3M', 'CPI 三月加速度'),
+                ('M2_State_ZScore', 'M2 状态 Z-Score'),
+                ('Macro_State_Composite', '宏观综合状态'),
                 ('Risk_On_Off', 'Risk-On/Off'),
             ]
             lines.append("\n## 宏观快照")

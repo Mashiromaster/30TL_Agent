@@ -22,7 +22,8 @@ def add_enhanced_factors(df):
     print("[EnhancedFactor] 计算新增制度自适应因子...")
     df = df.copy()
     
-    close_lag = df['close'].shift(1)
+    price = pd.to_numeric(df.get('adj_close', df['close']), errors='coerce')
+    close_lag = price.shift(1)
     ret_lag = close_lag.pct_change()
     
     # ============================================================
@@ -63,33 +64,9 @@ def add_enhanced_factors(df):
         df['Depth_Stress'] = (depth_lag - depth_ma60) / (depth_std60 + 0.01)
         df['Depth_Stress'] = df['Depth_Stress'].clip(-4, 4)
     
-    # ============================================================
-    # 3. 曲线动态增强
-    # ============================================================
-    if 'YC_Slope_30Y_10Y' in df.columns:
-        slope_lag = df['YC_Slope_30Y_10Y'].shift(1)
-        
-        # 曲线斜率变化速度
-        df['YC_Slope_Accel'] = slope_lag.diff(5)
-        df['YC_Slope_Accel_Z'] = (
-            df['YC_Slope_Accel'].rolling(60, min_periods=10).apply(
-                lambda x: (x.iloc[-1] - x.mean()) / (x.std() + 0.01) if len(x) >= 10 else 0
-            )
-        )
-        
-        # 曲线形态分类：平坦化/陡峭化
-        slope_ma20 = slope_lag.rolling(20, min_periods=5).mean()
-        slope_ma60 = slope_lag.rolling(60, min_periods=10).mean()
-        df['YC_Flattening'] = np.sign(slope_ma20 - slope_ma60)
-        
-        # 30Y收益率相对于10Y的超额变动
-        if 'YC_Level_Shift' in df.columns:
-            df['YC_30Y_Excess'] = df['YC_Slope_30Y_10Y'].shift(1).diff(5)
-    
-    if 'YC_Curvature' in df.columns:
-        curve_lag = df['YC_Curvature'].shift(1)
-        # 蝶式价差变化
-        df['Butterfly_Change_5D'] = curve_lag.diff(5)
+    # 曲线与跨市场的 1D/5D/20D 变化只在 ``macro_factors`` 中按
+    # 日频原始观测计算。这里不能对已复制到分钟线的状态再次 ``diff(5)``，
+    # 否则“5D”会退化为“五分钟”。
     
     # ============================================================
     # 4. 波动率聚类 (Volatility Clustering)
@@ -142,10 +119,13 @@ def add_enhanced_factors(df):
     # 6. 趋势强度 (ADX-like)
     # ============================================================
     # 方向运动
-    high_lag = df['high'].shift(1)
-    low_lag = df['low'].shift(1)
-    high_prev = df['high'].shift(2)
-    low_prev = df['low'].shift(2)
+    adjustment = price / pd.to_numeric(df['close'], errors='coerce').replace(0, np.nan)
+    adjusted_high = pd.to_numeric(df['high'], errors='coerce') * adjustment
+    adjusted_low = pd.to_numeric(df['low'], errors='coerce') * adjustment
+    high_lag = adjusted_high.shift(1)
+    low_lag = adjusted_low.shift(1)
+    high_prev = adjusted_high.shift(2)
+    low_prev = adjusted_low.shift(2)
     
     up_move = high_lag - high_prev
     down_move = low_prev - low_lag
@@ -192,15 +172,6 @@ def add_enhanced_factors(df):
         bb_lag = df['BB_Position'].shift(1)
         df['BB_Extreme'] = ((bb_lag > 0.9) | (bb_lag < 0.1)).astype(int)
         df['BB_Distance_Mean'] = abs(bb_lag - 0.5)
-    
-    # ============================================================
-    # 8. 跨资产因子（如果有数据）
-    # ============================================================
-    if 'CN_US_10Y_Spread' in df.columns:
-        spread_lag = df['CN_US_10Y_Spread'].shift(1)
-        # 中美利差变化方向
-        df['CN_US_Spread_Change_5D'] = spread_lag.diff(5)
-        df['CN_US_Spread_Change_20D'] = spread_lag.diff(20)
     
     # ============================================================
     # 9. 日内模式因子

@@ -967,7 +967,10 @@ def render_macro_tab(ctx):
 
     with col2:
         st.markdown("**宏观指标趋势**")
-        macro_cols = ['PMI_ZScore', 'CPI_Momentum', 'M2_Surprise', 'Macro_Surprise_Composite']
+        macro_cols = [
+            'PMI_State_ZScore', 'CPI_Acceleration_3M', 'M2_State_ZScore',
+            'Macro_State_Composite',
+        ]
         available_macro = [c for c in macro_cols if c in df.columns]
 
         if available_macro:
@@ -1025,10 +1028,10 @@ def render_macro_tab(ctx):
     with col4:
         st.markdown("**宏观快照**")
         macro_items = [
-            ('PMI_ZScore', 'PMI Z-Score', '+ 扩张, - 收缩'),
-            ('CPI_Momentum', 'CPI 动量', '+ 通胀, - 通缩'),
-            ('M2_Surprise', 'M2 超预期', '+ 宽松, - 收紧'),
-            ('Macro_Surprise_Composite', '宏观综合', '+ 向好, - 偏弱'),
+            ('PMI_State_ZScore', 'PMI 状态 Z-Score', '+ 扩张, - 收缩'),
+            ('CPI_Acceleration_3M', 'CPI 三月加速度', '+ 通胀加速, - 通胀放缓'),
+            ('M2_State_ZScore', 'M2 状态 Z-Score', '+ 宽松, - 收紧'),
+            ('Macro_State_Composite', '宏观综合状态', '+ 向好, - 偏弱'),
         ]
         for col_name, label, hint in macro_items:
             if col_name in df.columns:
@@ -1054,7 +1057,8 @@ def render_macro_tab(ctx):
     # Macro factor data coverage
     if mf is not None and len(mf) > 0:
         st.divider()
-        st.caption(f"宏观因子历史: {mf['available_date'].min()} ~ {mf['available_date'].max()}  "
+        availability_col = 'available_ts' if 'available_ts' in mf else 'available_date'
+        st.caption(f"宏观因子历史: {mf[availability_col].min()} ~ {mf[availability_col].max()}  "
                    f"({len(mf):,} 行)")
 
 
