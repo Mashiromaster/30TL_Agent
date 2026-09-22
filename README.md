@@ -228,6 +228,18 @@ F_Agent/
 
 ## 快速开始
 
+### A 股实时行情原型（只读）
+
+项目已增加统一行情网关，默认通过腾讯网页报价查询最新价、源时间和五档盘口，并可显式切换到现有 AKShare 数据源：
+
+```bash
+PYTHONPATH=src .venv/bin/python src/realtime_quotes.py quote 600000 000001.SZ
+PYTHONPATH=src .venv/bin/python src/realtime_quotes.py watch 600000 --interval 3 --count 5
+PYTHONPATH=src .venv/bin/python src/realtime_quotes.py quote 600000 --provider akshare
+```
+
+网页行情没有延迟 SLA，输出会强制标记 `trade_eligible=false`，仅用于原型与监控。Ashare 的实时语义、数据源比较、生产架构和 QMT/RQData 升级路径见 [A 股实时交易系统方案](docs/ashare_realtime_system.md)。
+
 ```bash
 # 1. 安装依赖
 pip install -r requirements.txt
@@ -237,11 +249,19 @@ pip install torch --index-url https://download.pytorch.org/whl/cpu  # CNN模块�
 # 方法一：在项目根目录创建 .env 文件（推荐，自动加载）
 echo DEEPSEEK_API_KEY=***  F_Agent/.env
 
+# 可选：启用固定版本 Jev 宏观语义因子
+# TYPESAFE_API_KEY=***
+# F_AGENT_JEV_MODE=online
+# F_AGENT_JEV_MODEL=jev-1.13.0
+# F_AGENT_JEV_GATE_MODE=shadow
+
 # 方法二：Dashboard 侧边栏直接输入（即时生效）
 # 启动 Dashboard 后在左侧 "🔑 API Key" 输入框粘贴 key
 
 # 方法三：系统环境变量
-set DEEPSEEK_API_KEY=*** 3. 每日更新行情
+set DEEPSEEK_API_KEY=***
+
+# 3. 每日更新行情
 cd src && python update_market_data.py
 
 # 4. (可选) 训练CNN微观特征嵌入
@@ -257,6 +277,10 @@ python main.py --mode train
 python self_evolution.py weekly     # 每周LoRA适配
 python self_evolution.py bimonthly  # 双月全量重训练
 ```
+
+Jev 默认完全关闭。`online` 用于首次生成内容寻址缓存，回测时建议切换为
+`cache`；影子门控只记录 `maintain/reduce/abstain`，不会改变方向和仓位。
+完整数据合同、质量门槛与回退方式见 [Jev 集成说明](docs/jev_integration.md)。
 
 ---
 
