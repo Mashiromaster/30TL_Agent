@@ -50,8 +50,8 @@
 └───────────────────────┬──────────────────────────────────┘
                         ↓
 ┌──────────────────────────────────────────────────────────┐
-│   + AdapterStack (每周残差修正, 时间衰减叠加)                │
-│   f'(x) = f_base(x) + Σ g_adapter_i(x) × 0.85^weeks       │
+│   候选回测 + Gate Attestation + ReleaseManager            │
+│   哈希绑定并原子切换 current.json；旧 AdapterStack 已停用    │
 └───────────────────────┬──────────────────────────────────┘
                         ↓
 ┌──────────────────────────────────────────────────────────┐
@@ -62,32 +62,23 @@
 
 ---
 
-## 三阶段微调架构
+## 受控模型迭代架构
 
 ```
                     ┌─────────────────────────────────┐
-                    │  ① CNN 瓶颈嵌入 (按需训练)        │
-                    │                                  │
-                    │  微观特征(25×30bar窗口)            │
-                    │       ↓ 1D Temporal CNN          │
-                    │  64维稠密嵌入 ←── Bottleneck      │
-                    │       ↓ 注入 df_factors.pkl       │
+                    │  ① Point-in-time 特征与研究特征    │
+                    │  宏观慢变量 + 微观快变量 + 可选CNN  │
                     └──────────────┬────────────────────┘
                                    ↓
                     ┌─────────────────────────────────┐
-                    │  ② LoRA 增量适配 (每周)           │
-                    │                                  │
-                    │  冻结基模型 + 残差适配器(20树,d=2)  │
-                    │  反馈分析 → 训练适配器 → 衰减堆栈   │
-                    │  f'(x) = f_base(x) + Σ adapter_i │
+                    │  ② 候选训练 + 同策略成本后回测      │
+                    │  schema / 时间 / 收益 / 风险门禁     │
                     └──────────────┬────────────────────┘
                                    ↓
                     ┌─────────────────────────────────┐
-                    │  ③ 全量重训练 (每两月)             │
-                    │                                  │
-                    │  吸收所有适配器经验 + CNN特征       │
-                    │  全量训练 LightGBM (200树,d=3)    │
-                    │  清空适配器堆栈 → 新基模型          │
+                    │  ③ ReleaseManager 原子发布         │
+                    │  manifest + 哈希 + gate attestation │
+                    │  ModelRuntime 只读 managed release  │
                     └─────────────────────────────────┘
 ```
 
@@ -113,18 +104,13 @@
   ↓ (训练时) Dense(1) → 30min forward return
 ```
 
-### ② LoRA 增量适配
+### ② 旧 AdapterStack（已停用）
 
 ![LoRA 迭代](docs/LOAR迭代.png)
 
-数学类比:
-
-| LoRA (神经网络) | F_Agent (树模型) |
-|:--|:--|
-| W' = W + A×B | f'(x) = f_base(x) + Σ g_adapter_i(x) × w_i |
-| W: 冻结预训练权重 | f_base: 冻结 LightGBM (200树, 91+64特征) |
-| A×B: 低秩适配 (~1%参数) | g_adapter: 极小 LGBM (20树, depth=2, ~1/20参数) |
-| 全量微调 | 双月全量重训练 |
+该实验路径直接反序列化并覆盖 `adapter_stack.pkl`，没有统一候选清单、哈希绑定和
+回测门禁，现已默认且不可配置地停用。遗留文件只做存在性展示，不会自动读取、
+移动、删除或参与预测。所有模型更新统一使用 `python main.py --mode train`。
 
 ---
 
@@ -152,7 +138,7 @@
 | **📋 模型评估** | 滚动窗口IC + 基线对比 + 退化检测 + 滚动IC趋势图 | ![模型评估](docs/自我诊断迭代.png) |
 | **⚙️ 超参优化** | Optuna贝叶斯超参搜索 + 多模型集成 + 多时域预测 | ![超参优化](docs/超参优化.png) |
 | **⏰ 定时调度** | 8个自动化任务 + 一键运行/暂停 + 守护进程 | ![定时任务](docs/定时任务.png) |
-| **🔧 微调迭代** | LoRA适配器堆栈 + CNN嵌入训练/注入 + 三阶段进化监控 | ![微调迭代](docs/微调迭代.png) |
+| **🔧 模型迭代** | 受控发布状态 + CNN研究特征 + 旧适配器退役状态 | ![微调迭代](docs/微调迭代.png) |
 
 ---
 
@@ -172,7 +158,7 @@ F_Agent/
 │   ├── trained_model.pkl               # LightGBM 双模型 + scaler + 特征列表
 │   ├── multi_horizon_model.pkl         # 多时域预测模型
 │   ├── micro_cnn.pt                    # CNN时序卷积模型 (PyTorch)
-│   └── adapter_stack.pkl               # LoRA适配器堆栈 (最多8个)
+│   └── adapter_stack.pkl               # 遗留实验文件（不读取、不写入）
 │
 ├── outputs/                            # 输出文件
 │   ├── df_factors.pkl                  # 因子集 (159K行 × 151特征)
@@ -193,7 +179,7 @@ F_Agent/
 │   ├── dashboard_v2.py                 # ★ Dashboard V2 (14-Tab, 端口8503)
 │   ├── signal_dashboard.py             # ★ 信号引擎 (甜点区排名信号)
 │   ├── LightGBM_model.py              # ★ LightGBM 双模型训练 (自动识别CNN特征)
-│   ├── self_evolution.py              # ★ 自我进化引擎 (LoRA适配+反馈分析)
+│   ├── self_evolution.py              # 旧适配器只读兼容状态（训练入口已停用）
 │   ├── micro_cnn.py                   # ★ 微观CNN (Bottleneck Embedding Extractor)
 │   ├── enhanced_factors.py            # ★ 制度自适应因子 (34个新增)
 │   ├── self_iteration.py              # ★ 自我迭代引擎 (漂移检测+时间衰减)
@@ -273,9 +259,10 @@ python main.py --mode train
 # 6. 启动 Dashboard
 双击 launch_dashboard.bat → http://localhost:8503
 
-# 7. 开启自我进化
-python self_evolution.py weekly     # 每周LoRA适配
-python self_evolution.py bimonthly  # 双月全量重训练
+# 7. 模型迭代
+# 旧版 AdapterStack 已停用；所有候选统一经过成本后回测和 release gate
+python main.py --mode train
+python main.py --mode iterate       # 只读漂移诊断
 ```
 
 Jev 默认完全关闭。`online` 用于首次生成内容寻址缓存，回测时建议切换为
@@ -298,11 +285,10 @@ python micro_cnn.py pipeline         # 一键训练CNN+提取+注入 (5-15分钟
 python micro_cnn.py status           # 查看CNN模块状态
 python micro_cnn.py train --epochs 100  # 单独训练 (自定义轮数)
 
-# === LoRA 增量适配 ===
-python self_evolution.py weekly      # 每周适配 (训练新适配器)
-python self_evolution.py bimonthly   # 双月全量重训练
-python self_evolution.py status      # 查看引擎状态
-python self_evolution.py predict     # 基模型+适配器组合预测
+# === 模型迭代 ===
+python main.py --mode train          # 候选训练 + 统一评估 + 受控发布
+python main.py --mode iterate        # 只读诊断，不修改生产模型
+python self_evolution.py status      # 查看旧适配器退役状态
 
 # === 评估 & 优化 ===
 python eval_runner.py --window 30    # 30天滚动评估
@@ -311,7 +297,7 @@ python optuna_optimizer.py --mode all --trials 50  # 超参搜索
 
 # === 定时任务 ===
 python cron_scheduler.py list        # 查看所有定时任务
-python cron_scheduler.py run weekly_adapt   # 手动运行每周适配
+python cron_scheduler.py run monthly_retrain  # 手动触发受控月度训练
 python cron_scheduler.py daemon      # 启动后台守护进程
 
 # === 数据维护 ===
@@ -389,14 +375,14 @@ python memory.py                     # 回填交易记忆
 | daily_signal | 工作日 16:00 | 基于最新数据生成交易信号 |
 | weekly_eval | 周五 17:00 | 滚动窗口IC评估+退化检测 |
 | weekly_memory | 周五 17:00 | 同步交易记忆与实际结果 |
-| **weekly_adapt** | **周六 08:00** | **LoRA适配器训练 (冻结基模型+残差学习)** |
-| monthly_retrain | 每月1号 09:00 | 全量因子重建+窗口扫描 |
+| weekly_adapt | 周六 08:00 | 已停用的遗留任务（调度器强制拒绝） |
+| monthly_retrain | 每月1号 09:00 | 候选训练+统一回测门禁+受控发布 |
 | monthly_iteration | 每月1号 10:00 | 自我迭代诊断+制度漂移检测 |
-| **bimonthly_retrain** | **双月1号 09:00** | **吸收适配器经验→全量重训练→清空堆栈** |
+| bimonthly_retrain | 双月1号 09:00 | 已停用的遗留任务（调度器强制拒绝） |
 
 ```bash
 python cron_scheduler.py daemon    # 后台守护进程
-python cron_scheduler.py run weekly_adapt  # 手动运行
+python cron_scheduler.py run monthly_retrain  # 手动运行受控训练
 ```
 
 ---
@@ -419,8 +405,10 @@ python cron_scheduler.py run weekly_adapt  # 手动运行
 ### 4. CNN时序嵌入的合理性
 受限于L1盘口数据，用**时间维度补偿空间维度不足**：学习微观特征在30bar内的动态演化模式优于静态快照
 
-### 5. LoRA适配的可靠性
-第一周适配器仅训练出1棵树(early stopping自动终止) — 低容量约束防止在弱信号上过拟合，验证了LoRA设计思路
+### 5. 旧 LoRA 类比不足以构成发布证据
+早停或低容量不能证明样本外有效性。旧 AdapterStack 缺少统一成本后回测、
+attestation 和不可放松的门禁，因此已停用；只有通过当前 release gate 的候选
+才可进入生产推理。
 
 ---
 
@@ -428,6 +416,7 @@ python cron_scheduler.py run weekly_adapt  # 手动运行
 
 - **Tick数据截止**: 2025-10-31，之后微观结构因子填0 → CNN仅在tick覆盖期训练
 - **SHIBOR/Repo**: AKShare接口偶有编码/SSL问题，资金面因子可能缺失
+- **当前发布状态**: 若不存在 `artifacts/models/current.json`，生产推理会按设计失败关闭，需显式训练并通过门禁后才可启用
 
 ---
 
