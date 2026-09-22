@@ -15,6 +15,7 @@ import re
 import json
 import time
 import hashlib
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -862,6 +863,70 @@ class RAGAnalyzer:
         self.api_key = os.environ.get("DEEPSEEK_API_KEY", "")
         self.model = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
 
+    def _write_semantic_event_cache(self, documents):
+        """Persist only documents with an explicit publication timestamp.
+
+        ``period`` and ``fetched_at`` are intentionally rejected: neither is
+        evidence that the text was available to the strategy at that time.
+        """
+        rows = []
+        timestamp_fields = ('release_ts', 'published_at', 'pub_ts', 'date')
+        for document in documents:
+            metadata = document.metadata or {}
+            raw_timestamp = next(
+                (
+                    metadata.get(field)
+                    for field in timestamp_fields
+                    if metadata.get(field) not in (None, '')
+                ),
+                None,
+            )
+            if raw_timestamp is None:
+                continue
+            published = pd.to_datetime(raw_timestamp, errors='coerce')
+            if pd.isna(published):
+                continue
+            if getattr(published, 'tzinfo', None) is not None:
+                published = published.tz_convert('Asia/Shanghai').tz_localize(None)
+            content = str(document.content or '').strip()
+            if not content:
+                continue
+            rows.append({
+                'date': published,
+                'source': str(metadata.get('source', '') or ''),
+                'title': str(metadata.get('title', '') or ''),
+                'content': content,
+                'doc_type': str(metadata.get('doc_type', '') or ''),
+                'content_hash': hashlib.sha256(content.encode('utf-8')).hexdigest(),
+            })
+
+        columns = ['date', 'source', 'title', 'content', 'doc_type', 'content_hash']
+        events = pd.DataFrame(rows, columns=columns)
+        if not events.empty:
+            events = (
+                events.sort_values('date')
+                .drop_duplicates(['date', 'source', 'content_hash'], keep='last')
+                .reset_index(drop=True)
+            )
+
+        os.makedirs(self.cache_dir, exist_ok=True)
+        output_path = os.path.join(self.cache_dir, 'semantic_events.pkl')
+        descriptor, temporary_path = tempfile.mkstemp(
+            prefix='.semantic_events.', suffix='.tmp', dir=self.cache_dir
+        )
+        os.close(descriptor)
+        try:
+            events.to_pickle(temporary_path)
+            os.replace(temporary_path, output_path)
+        except Exception:
+            try:
+                os.unlink(temporary_path)
+            except OSError:
+                pass
+            raise
+        _log(f"[RAGAnalyzer] Semantic events: {len(events)} dated documents")
+        return output_path
+
     # ------------------------------------------------------------------
     # Index building
     # ------------------------------------------------------------------
@@ -879,9 +944,11 @@ class RAGAnalyzer:
             self.vector_store.reset()
         docs = self.crawler.fetch_all(base_dir=self.base_dir, include_local_agentic=True)
         if not docs:
+            self._write_semantic_event_cache([])
             _log("[RAGAnalyzer] No documents fetched. Index build aborted.")
             return stats
 
+        self._write_semantic_event_cache(docs)
         self.vector_store.add_documents(docs)
         return self.vector_store.get_stats()
 

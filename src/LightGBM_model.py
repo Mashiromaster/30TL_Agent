@@ -15,8 +15,10 @@ import sklearn
 from lightgbm import LGBMRegressor
 from scipy import stats
 
+from artifact_audit import extract_text_factor_metadata
 from feature_registry import FeatureGroups, discover_feature_groups
 from hierarchical_model import HierarchicalMacroMicroModel
+from jev_evaluation import load_semantic_gate_status
 from training_data import (
     LabelSpec,
     SplitSpec,
@@ -102,12 +104,54 @@ def prepare_training_data(df, prediction_horizon=30, label_spec=None):
     model = labelled.loc[labelled["label_valid"]].copy()
     model.attrs["feature_groups"] = groups.as_dict()
     model.attrs["label_spec"] = spec.__dict__
+    text_factor_metadata = extract_text_factor_metadata(df)
+    if text_factor_metadata:
+        model.attrs["text_factor_metadata"] = text_factor_metadata
     print(
         f"[Model] features={len(features)} "
         f"micro={len(groups.micro)} market={len(groups.market)} "
         f"macro={len(groups.macro)} regime={len(groups.regime)} gp={len(groups.gp)}"
     )
     return model, features
+
+
+def _apply_jev_semantic_gate(df, base_dir):
+    """Remove Jev candidate features until their sealed semantic gate passes."""
+    metadata = extract_text_factor_metadata(df)
+    jev_features = sorted(
+        name for name in df.columns if str(name).startswith("JEV_")
+    )
+    provenance = dict(metadata)
+    if not jev_features:
+        provenance.update(
+            {
+                "semantic_gate_passed": None,
+                "semantic_gate_reason": "no_jev_features",
+                "semantic_gate_dataset_id": "",
+                "training_jev_features": [],
+            }
+        )
+        return df, provenance
+
+    passed, reason, gate_report = load_semantic_gate_status(base_dir, metadata)
+    provenance.update(
+        {
+            "semantic_gate_passed": passed,
+            "semantic_gate_reason": reason,
+            "semantic_gate_dataset_id": str(gate_report.get("dataset_id", "")),
+            "training_jev_features": jev_features if passed else [],
+        }
+    )
+    if passed:
+        return df, provenance
+
+    filtered = df.drop(columns=jev_features).copy()
+    filtered.attrs = dict(df.attrs)
+    print(
+        "[Model] Jev semantic gate not passed "
+        f"({reason}); excluded {len(jev_features)} Jev features"
+    )
+    return filtered, provenance
 
 
 def train_model(
@@ -242,6 +286,7 @@ def run_process(base_dir, max_lookback_months=9, time_decay_half_life=60):
     os.makedirs(os.path.dirname(model_file), exist_ok=True)
 
     raw = pd.read_pickle(factor_file)
+    raw, text_factor_metadata = _apply_jev_semantic_gate(raw, base_dir)
     label_spec = LabelSpec(horizon_bars=30, entry_lag_bars=1, price_col="adj_close")
     model_frame, _ = prepare_training_data(raw, label_spec=label_spec)
     split_spec = SplitSpec(validation_days=60, sealed_holdout_days=60, min_train_days=120)
@@ -354,6 +399,7 @@ def run_process(base_dir, max_lookback_months=9, time_decay_half_life=60):
         "validation_rows": len(validation),
         "sealed_holdout_rows": len(holdout),
         "feature_groups": groups.as_dict(),
+        "text_factor_metadata": text_factor_metadata,
         "gp": gp_report,
     }
     with open(report_file, "w", encoding="utf-8") as handle:
@@ -380,7 +426,7 @@ def run_process(base_dir, max_lookback_months=9, time_decay_half_life=60):
         candidate_importance_file, index=False, encoding="utf-8-sig"
     )
     artifacts = {
-        "artifact_schema_version": 2,
+        "artifact_schema_version": 3,
         "model_base": flat,
         "model_active": None,
         "hierarchical_model": hierarchy,
@@ -388,6 +434,7 @@ def run_process(base_dir, max_lookback_months=9, time_decay_half_life=60):
         "scaler": IdentityScaler(),
         "features": all_features,
         "feature_groups": groups.as_dict(),
+        "text_factor_metadata": text_factor_metadata,
         "gp_miner": gp_miner,
         "label_spec": label_spec.__dict__,
         "split_spec": split_spec.__dict__,

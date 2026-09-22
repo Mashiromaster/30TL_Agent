@@ -375,6 +375,9 @@ def merge_macro_to_minute(df_main, df_macro):
     df_merged.attrs["macro_features"] = list(dict.fromkeys(
         existing_macro_features + new_macro_features
     ))
+    text_factor_metadata = df_macro.attrs.get("text_factor_metadata")
+    if isinstance(text_factor_metadata, dict):
+        df_merged.attrs["text_factor_metadata"] = dict(text_factor_metadata)
     coverage = df_merged["_macro_coverage_count"].gt(0).mean()
     stale = df_merged["_macro_stale_count"].gt(0).mean()
     print(f"[Factor] 宏观覆盖行: {coverage:.1%}; 含过期因子的行: {stale:.1%}")

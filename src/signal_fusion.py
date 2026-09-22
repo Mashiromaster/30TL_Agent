@@ -92,6 +92,13 @@ class FusedSignal:
     llm_judgment: str = ''
     llm_reasoning: str = ''
 
+    # Jev 只做影子门控，绝不在本层改变方向或仓位。
+    jev_gate_action: str = ''
+    jev_gate_confidence: float = 0.0
+    jev_gate_probabilities: Dict[str, float] = field(default_factory=dict)
+    jev_evidence_sufficient: float = 0.0
+    jev_model: str = ''
+
     timestamp: str = ''
 
     def to_dict(self) -> dict:
@@ -114,6 +121,11 @@ class FusedSignal:
             'rag_contradictions': self.rag_contradictions,
             'llm_judgment': self.llm_judgment,
             'llm_reasoning': self.llm_reasoning,
+            'jev_gate_action': self.jev_gate_action,
+            'jev_gate_confidence': self.jev_gate_confidence,
+            'jev_gate_probabilities': self.jev_gate_probabilities,
+            'jev_evidence_sufficient': self.jev_evidence_sufficient,
+            'jev_model': self.jev_model,
             'timestamp': self.timestamp,
         }
 
@@ -135,7 +147,13 @@ class SignalFusionEngine:
         )
     """
 
-    def __init__(self, base_dir=BASE_DIR):
+    def __init__(
+        self,
+        base_dir=BASE_DIR,
+        *,
+        jev_client=None,
+        jev_gate_mode=None,
+    ):
         self.base_dir = base_dir
         self.output_dir = os.path.join(base_dir, "outputs")
         os.makedirs(self.output_dir, exist_ok=True)
@@ -146,6 +164,19 @@ class SignalFusionEngine:
         self.llm_enabled = bool(self.api_key) and os.environ.get(
             'F_AGENT_FUSION_LLM', '1'
         ).strip().lower() in ('1', 'true', 'yes')
+
+        self.jev_gate_mode = (
+            jev_gate_mode
+            if jev_gate_mode is not None
+            else os.environ.get('F_AGENT_JEV_GATE_MODE', 'off')
+        ).strip().lower()
+        if self.jev_gate_mode not in ('off', 'shadow'):
+            raise ValueError("F_AGENT_JEV_GATE_MODE only supports 'off' or 'shadow'")
+        self.jev_client = jev_client
+        if self.jev_gate_mode == 'shadow' and self.jev_client is None:
+            from jev_client import JevClient
+
+            self.jev_client = JevClient(base_dir)
 
     def _load_api_key(self):
         """从 .env 或环境变量加载 API Key"""
@@ -216,6 +247,14 @@ class SignalFusionEngine:
         if rag is not None and fused.adjusted_direction != 0:
             self._apply_rag_rules(fused, rag)
 
+        # ── Jev 影子门控：仅记录判断，不参与本轮信号调整 ──
+        if (
+            self.jev_gate_mode == 'shadow'
+            and self.jev_client is not None
+            and fused.adjusted_direction != 0
+        ):
+            self._apply_jev_shadow(fused, factor_alerts)
+
         # ── Layer 3: LLM 推理层 ──
         if use_llm and self.llm_enabled and fused.adjusted_direction != 0:
             self._apply_llm_judgment(fused, memory, rag, factor_alerts)
@@ -224,6 +263,45 @@ class SignalFusionEngine:
         self._save_fusion_result(fused)
 
         return fused
+
+    def _apply_jev_shadow(self, fused: FusedSignal, factor_alerts: list):
+        """记录 Jev 风险判断；影子模式没有修改交易状态的权限。"""
+        state = {
+            'existing_signal': {
+                'direction': {1: 'long', -1: 'short', 0: 'flat'}.get(
+                    fused.adjusted_direction, 'flat'
+                ),
+                'regime': fused.regime,
+                'model_used': fused.model_used,
+            },
+            'deterministic_rule_findings': list(fused.reasons),
+            'rag_policy_signals': list(fused.rag_policy_signals),
+            'rag_contradictions': list(fused.rag_contradictions),
+            'factor_alert_names': [
+                alert[0] if isinstance(alert, (tuple, list)) and alert else str(alert)
+                for alert in factor_alerts[:8]
+            ],
+            'constraint': (
+                'This is a shadow audit. The answer cannot reverse a signal and must not '
+                'assume information absent from this state.'
+            ),
+        }
+        try:
+            result = self.jev_client.assess_signal_gate(state)
+            if not result:
+                return
+            fused.jev_gate_action = str(result.get('action', ''))
+            fused.jev_gate_confidence = float(result.get('confidence', 0.0))
+            fused.jev_gate_probabilities = {
+                str(key): float(value)
+                for key, value in result.get('probabilities', {}).items()
+            }
+            fused.jev_evidence_sufficient = float(
+                result.get('evidence_sufficient', 0.0)
+            )
+            fused.jev_model = str(result.get('model', ''))
+        except Exception as e:
+            print(f"[Fusion] Jev 影子门控异常: {e}")
 
     # ═══════════════════════════════════════════════════════════
     # Layer 1: 规则层

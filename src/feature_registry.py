@@ -13,6 +13,7 @@ MACRO_PATTERNS = (
     "SHIBOR_", "Repo_", "YC_", "PMI_", "CPI_", "M2_", "SocialFin",
     "Injection_", "OMO_", "Stock_Bond", "CN_US", "Credit_", "Risk_On",
     "Liquidity_", "Macro_", "Policy_Sentiment", "LPR_",
+    "JEV_",
 )
 MICRO_PATTERNS = (
     "Spread", "Depth", "Imbalance", "VPIN", "HF_", "Signed_", "Trade_",
