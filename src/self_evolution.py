@@ -30,6 +30,17 @@ from typing import List, Optional, Dict, Tuple
 import lightgbm as lgb
 from lightgbm import LGBMRegressor
 from sklearn.preprocessing import RobustScaler
+from intelligence_events import redact_sensitive_text
+
+
+LEGACY_ADAPTER_RETIREMENT_MESSAGE = (
+    "旧版 AdapterStack 已停用：它不受统一候选评估、release gate 和模型清单保护。"
+    "请使用 `python main.py --mode train` 生成候选，并仅通过 ReleaseManager 发布。"
+)
+
+
+class LegacyAdapterDisabledError(RuntimeError):
+    """Raised when code attempts to use the retired pickle adapter stack."""
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -92,22 +103,23 @@ class FeedbackAnalyzer:
         self.base_dir = base_dir
     
     def load_memory(self) -> List[Dict]:
-        memory_path = os.path.join(self.base_dir, "outputs/trade_memory.jsonl")
-        if not os.path.exists(memory_path):
-            return []
-        records = []
-        with open(memory_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    try:
-                        records.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        continue
-        return records
+        from memory import TradingMemory
+
+        return TradingMemory(self.base_dir).get_recent(1_000_000)
     
     def load_predictions(self) -> Optional[pd.DataFrame]:
-        pred_path = os.path.join(self.base_dir, "outputs/df_predictions.pkl")
+        from model_release import ReleaseManager
+
+        manager = ReleaseManager(
+            os.path.join(self.base_dir, "artifacts", "models"),
+            legacy_model_path=os.path.join(
+                self.base_dir, "models", "trained_model.pkl"
+            ),
+        )
+        managed = manager.active_artifact_path("predictions")
+        pred_path = os.fspath(managed) if managed else os.path.join(
+            self.base_dir, "outputs", "df_predictions.pkl"
+        )
         if not os.path.exists(pred_path):
             return None
         return pd.read_pickle(pred_path)
@@ -327,12 +339,29 @@ class FrozenBaseModel:
     
     def load(self) -> bool:
         """加载基模型。返回是否成功。"""
-        if not os.path.exists(self.model_path):
-            print(f"[FrozenBase] 模型文件不存在: {self.model_path}")
+        from model_release import ReleaseManager
+
+        manager = ReleaseManager(
+            os.path.join(self.base_dir, "artifacts", "models"),
+            legacy_model_path=self.model_path,
+        )
+        signature = manager.current_signature()
+        if signature is None or signature.source != "release":
+            print("[FrozenBase] 未找到通过门禁的托管模型 release")
             return False
-        
-        with open(self.model_path, 'rb') as f:
+        resolved_path = os.fspath(signature.artifact_path)
+        with open(resolved_path, 'rb') as f:
             self._model_data = pickle.load(f)
+
+        if self._model_data.get('selected_model_kind', 'flat_combined') != 'flat_combined':
+            print("[FrozenBase] 当前release为分层模型；旧适配器路径已禁用")
+            self._model_data = None
+            return False
+        gp_miner = self._model_data.get('gp_miner')
+        if gp_miner is not None and getattr(gp_miner, 'selected_programs_', None):
+            print("[FrozenBase] 当前release包含GP特征；旧适配器路径已禁用")
+            self._model_data = None
+            return False
         
         self.model_base = self._model_data['model_base']
         self.model_active = self._model_data.get('model_active')
@@ -492,14 +521,11 @@ class ResidualAdapter:
 
 class AdapterStack:
     """
-    管理多个适配器, 提供时间衰减加权组合预测。
-    
-    组合公式:
-      final_pred = base_pred + Σ(adapter_i.pred × decay_weight_i)
-    
-    衰减权重:
-      每周衰减为原来的 0.85 (半衰期 ≈ 4.5周)
-      确保旧适配器的影响逐渐消退
+    已退役的实验适配器堆栈。
+
+    旧实现把可执行 Python 对象直接写入 ``adapter_stack.pkl``，且没有
+    release manifest、哈希绑定或统一回测门禁。保留这个只读外壳是为了让
+    Dashboard/状态页能明确展示“已停用”，但不会读取、写入、移动或删除旧文件。
     """
     
     DECAY_RATE = 0.85  # 每周衰减率
@@ -507,86 +533,31 @@ class AdapterStack:
     def __init__(self, base_dir: str):
         self.base_dir = base_dir
         self.stack_path = os.path.join(base_dir, "models/adapter_stack.pkl")
+        self.enabled = False
+        self.retired_reason = LEGACY_ADAPTER_RETIREMENT_MESSAGE
+        self.legacy_artifact_present = os.path.exists(self.stack_path)
         self.adapters: List[ResidualAdapter] = []
         self.records: List[AdapterRecord] = []
-        self._load()
     
     def _load(self):
-        """从磁盘加载适配器堆栈，损坏时自动备份"""
-        if not os.path.exists(self.stack_path):
-            return
-        
-        try:
-            with open(self.stack_path, 'rb') as f:
-                data = pickle.load(f)
-            self.adapters = data.get('adapters', [])
-            self.records = data.get('records', [])
-            print(f"[AdapterStack] 加载 {len(self.adapters)} 个适配器")
-        except Exception as e:
-            print(f"[AdapterStack] 加载失败: {e}")
-            # Backup corrupted file
-            try:
-                backup_path = self.stack_path + ".corrupted." + datetime.now().strftime("%Y%m%d_%H%M%S")
-                os.rename(self.stack_path, backup_path)
-                print(f"[AdapterStack] 损坏文件已备份: {backup_path}")
-            except:
-                try:
-                    os.remove(self.stack_path)
-                except:
-                    pass
-            self.adapters = []
-            self.records = []
+        """Never deserialize the retired, unmanifested pickle artifact."""
+        raise LegacyAdapterDisabledError(self.retired_reason)
     
     def _save(self):
-        """持久化适配器堆栈"""
-        os.makedirs(os.path.dirname(self.stack_path), exist_ok=True)
-        with open(self.stack_path, 'wb') as f:
-            pickle.dump({
-                'adapters': self.adapters,
-                'records': self.records,
-                'saved_at': datetime.now().isoformat(),
-            }, f)
+        """Refuse writes outside the canonical release pipeline."""
+        raise LegacyAdapterDisabledError(self.retired_reason)
     
     def push(self, adapter: ResidualAdapter) -> AdapterRecord:
-        """
-        推入新适配器, 衰减所有旧适配器的权重。
-        """
-        # Decay existing adapters
-        for rec in self.records:
-            rec.decay_weight *= self.DECAY_RATE
-        
-        self.adapters.append(adapter)
-        self.records.append(adapter.metadata)
-        
-        self._save()
-        
-        n = len(self.adapters)
-        print(f"[AdapterStack] 推入 {adapter.adapter_id}, 堆栈大小: {n}")
-        
-        # Cleanup: 移除衰减到极低权重的旧适配器 (保留最多8个)
-        if len(self.adapters) > 8:
-            # Sort by decay_weight descending, keep top 8
-            paired = list(zip(self.adapters, self.records))
-            paired.sort(key=lambda x: x[1].decay_weight, reverse=True)
-            self.adapters = [p[0] for p in paired[:8]]
-            self.records = [p[1] for p in paired[:8]]
-            self._save()
-        
-        return adapter.metadata
+        """Refuse to add an adapter outside a managed release."""
+        del adapter
+        raise LegacyAdapterDisabledError(self.retired_reason)
     
     def predict(self, X: np.ndarray) -> np.ndarray:
         """
         所有适配器的加权组合预测。
         """
-        if not self.adapters:
-            return np.zeros(len(X))
-        
-        combined = np.zeros(len(X))
-        for adapter, record in zip(self.adapters, self.records):
-            if record.decay_weight > 0.01:  # Skip nearly-zero adapters
-                combined += adapter.predict(X) * record.decay_weight
-        
-        return combined
+        del X
+        raise LegacyAdapterDisabledError(self.retired_reason)
     
     def get_active_adapters(self) -> List[Dict]:
         """获取活跃适配器摘要"""
@@ -604,12 +575,8 @@ class AdapterStack:
         ]
     
     def clear(self):
-        """清空适配器堆栈 (双月全量重训练后)"""
-        self.adapters = []
-        self.records = []
-        if os.path.exists(self.stack_path):
-            os.remove(self.stack_path)
-        print("[AdapterStack] 堆栈已清空")
+        """Never delete a user-owned legacy artifact implicitly."""
+        raise LegacyAdapterDisabledError(self.retired_reason)
     
     @property
     def size(self) -> int:
@@ -622,7 +589,7 @@ class AdapterStack:
 
 class SelfEvolutionEngine:
     """
-    F_Agent 自我进化引擎。
+    F_Agent 旧自我进化引擎的只读兼容外壳。
     
     类比 LoRA 微调架构:
     
@@ -638,9 +605,8 @@ class SelfEvolutionEngine:
         ├── g_adapter_i: 第i周适配器 (20棵树, 深度2)
         └── w_i: 时间衰减权重 (每周×0.85)
     
-    周期:
-      Weekly  (每周六): 分析反馈 → 训练适配器 → 推入堆栈
-      Bimonthly (每两月): 吸收经验 → 全量重训练 → 清空堆栈
+    AdapterStack 已从生产和研究 CLI 入口退役。候选模型必须进入统一训练、
+    回测、gate attestation 和 ReleaseManager 发布链路。
     """
     
     def __init__(self, base_dir: str):
@@ -651,7 +617,11 @@ class SelfEvolutionEngine:
         
         # Paths
         self.factors_path = os.path.join(base_dir, "outputs/df_factors.pkl")
-        self.pred_path = os.path.join(base_dir, "outputs/df_predictions.pkl")
+        # Adapter/ensemble predictions are research artifacts and must never
+        # replace the canonical release's prediction set.
+        self.pred_path = os.path.join(
+            base_dir, "outputs", "evolution_predictions.pkl"
+        )
         self.evo_report_path = os.path.join(base_dir, "outputs/evolution_report.json")
         self.evo_history_path = os.path.join(base_dir, "outputs/evolution_history.jsonl")
     
@@ -668,6 +638,10 @@ class SelfEvolutionEngine:
         6. 推入堆栈
         7. 生成报告
         """
+        if not self.adapter_stack.enabled:
+            print(f"[Evo] ❌ {self.adapter_stack.retired_reason}")
+            return None
+
         print("\n" + "=" * 60)
         print("  F_Agent 自我进化 — 每周适配 (Weekly Adaptation)")
         print("=" * 60)
@@ -827,6 +801,10 @@ class SelfEvolutionEngine:
         4. 全量重训练基模型
         5. 清空适配器堆栈
         """
+        if not self.adapter_stack.enabled:
+            print(f"[Evo] ❌ {self.adapter_stack.retired_reason}")
+            return None
+
         print("\n" + "=" * 60)
         print("  F_Agent 自我进化 — 双月全量重训练 (Bimonthly Retrain)")
         print("=" * 60)
@@ -884,21 +862,10 @@ class SelfEvolutionEngine:
         # Step 5: Run full retrain
         print("\n[Evo] --- 步骤 4/5: 执行全量重训练 ---")
         
-        try:
-            from retrain_optimized import RetrainOptimizer
-            retrainer = RetrainOptimizer(self.base_dir)
-            
-            # Override sample weights for the retrain
-            # Note: retrain_optimized.py uses its own training logic
-            # We call it and let it do its thing
-            success = retrainer.run_full_retrain()
-            
-            if not success:
-                print("[Evo] ⚠ retrain_optimized 返回失败, 尝试直接训练")
-                success = self._direct_retrain(df_model, features, retrain_weights)
-        except ImportError:
-            print("[Evo] retrain_optimized 不可用, 使用直接重训练")
-            success = self._direct_retrain(df_model, features, retrain_weights)
+        # All full retrains must enter the canonical candidate/evaluation/
+        # release pipeline.  Adapter-derived sample weights remain research
+        # evidence until that pipeline explicitly supports and versions them.
+        success = self._direct_retrain(df_model, features, retrain_weights)
         
         if not success:
             print("[Evo] ❌ 重训练失败")
@@ -994,62 +961,24 @@ class SelfEvolutionEngine:
             
             return df_model, features
         except Exception as e:
-            print(f"[Evo] 特征准备失败: {e}")
-            import traceback
-            traceback.print_exc()
+            print(
+                f"[Evo] 特征准备失败: {redact_sensitive_text(e)}"
+            )
             return None, []
     
     def _direct_retrain(
-        self, 
-        df_model: pd.DataFrame, 
-        features: List[str], 
-        sample_weights: np.ndarray
+        self,
+        df_model: pd.DataFrame,
+        features: List[str],
+        sample_weights: np.ndarray,
     ) -> bool:
-        """直接重训练 (当retrain_optimized不可用时的fallback)"""
-        from LightGBM_model import train_model
-        from sklearn.preprocessing import RobustScaler
-        
-        n = len(df_model)
-        train_end = int(n * 0.7)
-        val_end = int(n * 0.85)
-        
-        train_df = df_model.iloc[:train_end]
-        val_df = df_model.iloc[train_end:val_end]
-        test_df = df_model.iloc[val_end:]
-        
-        scaler = RobustScaler()
-        X_train = scaler.fit_transform(train_df[features])
-        X_val = scaler.transform(val_df[features])
-        X_test = scaler.transform(test_df[features])
-        
-        y_train = train_df['Target_Ret'].values
-        y_val = val_df['Target_Ret'].values
-        y_test = test_df['Target_Ret'].values
-        
-        sw_train = sample_weights[:train_end]
-        
-        model_base = train_model(X_train, y_train, X_val, y_val, 'base', sw_train)
-        
-        preds = model_base.predict(X_test)
-        ic = np.corrcoef(y_test, preds)[0, 1]
-        print(f"[Evo] 重训练 IC: {ic:.4f}")
-        
-        # Save
-        with open(os.path.join(self.base_dir, "models/trained_model.pkl"), 'wb') as f:
-            pickle.dump({
-                'model_base': model_base,
-                'model_active': None,
-                'scaler': scaler,
-                'features': features,
-            }, f)
-        
-        # Save predictions
-        test_df_out = test_df.copy()
-        test_df_out['Pred_Ret'] = preds
-        self._save_predictions(test_df_out)
-        
-        return True
-    
+        """Deprecated fallback routed through the canonical release pipeline."""
+        del df_model, features, sample_weights
+        from LightGBM_model import run_process
+
+        print("[Evo] 旧直接写模型路径已禁用；转入候选评估与 ReleaseManager")
+        return bool(run_process(self.base_dir, max_lookback_months=12))
+
     def _save_predictions(self, df: pd.DataFrame):
         """保存预测结果"""
         output_cols = ['date', 'trade_dt', 'ticker', 'close', 'Target_Ret', 'Pred_Ret',
@@ -1144,6 +1073,9 @@ class SelfEvolutionEngine:
         
         return {
             'base_model_loaded': base_loaded,
+            'legacy_adapter_enabled': self.adapter_stack.enabled,
+            'legacy_artifact_present': self.adapter_stack.legacy_artifact_present,
+            'legacy_adapter_reason': self.adapter_stack.retired_reason,
             'adapter_stack_size': self.adapter_stack.size,
             'active_adapters': self.adapter_stack.get_active_adapters(),
             'latest_report': report,
@@ -1236,7 +1168,9 @@ def run_status(base_dir: str) -> int:
     print("  F_Agent 自我进化引擎 — 状态")
     print("=" * 55)
     print(f"  基模型: {'✓ 已加载' if status['base_model_loaded'] else '✗ 未加载'}")
-    print(f"  适配器堆栈: {status['adapter_stack_size']} 个")
+    print("  旧版适配器堆栈: 已停用")
+    if status['legacy_artifact_present']:
+        print("  遗留 adapter_stack.pkl: 存在（保持原样，未读取）")
     print(f"  总进化周期: {status['total_cycles']}")
     
     if status['active_adapters']:
@@ -1260,6 +1194,10 @@ def run_combine_predict(base_dir: str) -> int:
     这允许在inference阶段使用适配器增强预测。
     """
     engine = SelfEvolutionEngine(base_dir)
+
+    if not engine.adapter_stack.enabled:
+        print(f"[Evo] ❌ {engine.adapter_stack.retired_reason}")
+        return 1
     
     if not engine.base_model.load():
         print("[Evo] ❌ 基模型不可用")
@@ -1312,10 +1250,10 @@ if __name__ == '__main__':
     
     if len(sys.argv) < 2:
         print("用法: python self_evolution.py <command> [base_dir]")
-        print("  weekly     — 每周适配 (训练新适配器)")
-        print("  bimonthly  — 双月全量重训练")
+        print("  weekly     — 已停用；请使用 main.py --mode train")
+        print("  bimonthly  — 已停用；请使用 main.py --mode train")
         print("  status     — 查看引擎状态")
-        print("  predict    — 运行组合预测并保存")
+        print("  predict    — 已停用；生产推理只读取当前 managed release")
         sys.exit(1)
     
     command = sys.argv[1]

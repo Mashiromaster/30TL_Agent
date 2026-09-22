@@ -38,7 +38,18 @@ class StrategyContext:
     @property
     def df_pred(self):
         if self._df_pred is None:
-            path = os.path.join(self.base_dir, "outputs/df_predictions.pkl")
+            from model_release import ReleaseManager
+
+            manager = ReleaseManager(
+                os.path.join(self.base_dir, "artifacts", "models"),
+                legacy_model_path=os.path.join(
+                    self.base_dir, "models", "trained_model.pkl"
+                ),
+            )
+            managed = manager.active_artifact_path("predictions")
+            path = os.fspath(managed) if managed else os.path.join(
+                self.base_dir, "outputs", "df_predictions.pkl"
+            )
             if os.path.exists(path):
                 self._df_pred = pd.read_pickle(path)
         return self._df_pred
@@ -46,10 +57,18 @@ class StrategyContext:
     @property
     def signal(self):
         if self._signal is None:
-            path = os.path.join(self.base_dir, "outputs/signal.json")
-            if os.path.exists(path):
-                with open(path, 'r', encoding='utf-8') as f:
-                    self._signal = json.load(f)
+            factor_frame = self.df_factors
+            model_path = os.path.join(
+                self.base_dir, "models", "trained_model.pkl"
+            )
+            if factor_frame is not None:
+                try:
+                    from inference import SignalGenerator
+
+                    signal, _ = SignalGenerator(model_path).generate_signal(factor_frame)
+                    self._signal = signal if signal.get('decision_ready', True) else {}
+                except Exception:
+                    self._signal = {}
         return self._signal or {}
 
     @property
@@ -65,7 +84,18 @@ class StrategyContext:
     @property
     def importance(self):
         if self._importance is None:
-            path = os.path.join(self.base_dir, "outputs/feature_importance.csv")
+            from model_release import ReleaseManager
+
+            manager = ReleaseManager(
+                os.path.join(self.base_dir, "artifacts", "models"),
+                legacy_model_path=os.path.join(
+                    self.base_dir, "models", "trained_model.pkl"
+                ),
+            )
+            managed = manager.active_artifact_path("feature_importance")
+            path = os.fspath(managed) if managed else os.path.join(
+                self.base_dir, "outputs", "feature_importance.csv"
+            )
             if os.path.exists(path):
                 self._importance = pd.read_csv(path)
         return self._importance
@@ -518,10 +548,19 @@ class MarketAnalyzer:
         否则降级到基于规则的离线模式。
         """
         try:
+            from inference import SignalGenerator
             from signal_fusion import run_fusion
+            model_path = os.path.join(
+                self.ctx.base_dir, "models", "trained_model.pkl"
+            )
+            if self.ctx.df_factors is None:
+                return self._fallback_fusion_report("无可用因子数据")
+            base_signal, _ = SignalGenerator(model_path).generate_signal(
+                self.ctx.df_factors
+            )
             fused = run_fusion(
                 base_dir=self.ctx.base_dir,
-                base_signal=self.ctx.signal if self.ctx.signal else None,
+                base_signal=base_signal,
                 use_llm=use_llm,
             )
             if fused is None:

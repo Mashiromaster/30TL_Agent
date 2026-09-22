@@ -13,12 +13,12 @@ import numpy as np
 import pickle
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from sklearn.preprocessing import RobustScaler
 import lightgbm as lgb
 from lightgbm import LGBMRegressor
 
-BASE_DIR = r"D:\桌面\F_Agent"
+from config import BASE_DIR
 
 
 def load_factors():
@@ -263,7 +263,7 @@ def sweep_configs(df_model, features):
 
 
 def save_and_backtest(best_result, config_label):
-    """保存模型并运行排名信号回测"""
+    """保存旧训练候选并回测；此入口没有生产发布权限。"""
     test_df = best_result['test_df'].copy()
     test_df['Pred_Ret'] = best_result['y_pred']
     
@@ -271,14 +271,17 @@ def save_and_backtest(best_result, config_label):
     print(f"Target_Ret stats: mean={test_df['Target_Ret'].mean():.6f}, std={test_df['Target_Ret'].std():.6f}")
     
     # 保存预测
-    pred_file = os.path.join(BASE_DIR, "outputs/df_predictions.pkl")
+    run_id = datetime.now(timezone.utc).strftime("legacy-retrain-v2-%Y%m%dT%H%M%SZ")
+    candidate_dir = os.path.join(BASE_DIR, "artifacts", "experiments", run_id)
+    os.makedirs(candidate_dir, exist_ok=False)
+    pred_file = os.path.join(candidate_dir, "df_predictions.pkl")
     output_cols = ['date', 'trade_dt', 'ticker', 'close', 'Target_Ret', 'Pred_Ret',
                    'oi', 'volume', 'money', 'Market_Regime']
     available_cols = [c for c in output_cols if c in test_df.columns]
     test_df[available_cols].to_pickle(pred_file)
     
     # 保存模型
-    model_file = os.path.join(BASE_DIR, "models/trained_model.pkl")
+    model_file = os.path.join(candidate_dir, "trained_model.pkl")
     with open(model_file, 'wb') as f:
         pickle.dump({
             'model_base': best_result['model_base'],
@@ -293,7 +296,7 @@ def save_and_backtest(best_result, config_label):
         'feature': best_result['features'],
         'importance': best_result['model_base'].feature_importances_
     }).sort_values('importance', ascending=False)
-    importance_df.to_csv(os.path.join(BASE_DIR, "outputs/feature_importance.csv"),
+    importance_df.to_csv(os.path.join(candidate_dir, "feature_importance.csv"),
                         index=False, encoding='utf-8-sig')
     
     print(f"\nTop 20 特征:")
@@ -305,7 +308,12 @@ def save_and_backtest(best_result, config_label):
     print("策略回测")
     print("="*60)
     import backtest
-    backtest.run_process(BASE_DIR)
+    backtest.run_process(
+        BASE_DIR,
+        prediction_path=pred_file,
+        strategy_id="tl_rank_sweetspot_legacy_v1",
+    )
+    print("[候选模式] 未发布；请使用 main.py --mode train 进入统一门禁。")
 
 
 def main():

@@ -203,23 +203,24 @@ class SelfIterationEngine:
 
     def load_memory(self):
         """加载交易记忆"""
-        memory_path = os.path.join(self.base_dir, "outputs/trade_memory.jsonl")
-        if not os.path.exists(memory_path):
-            return []
-        records = []
-        with open(memory_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    try:
-                        records.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        continue
-        return records
+        from memory import TradingMemory
+
+        return TradingMemory(self.base_dir).get_recent(1_000_000)
 
     def load_predictions(self):
         """加载预测数据"""
-        pred_path = os.path.join(self.base_dir, "outputs/df_predictions.pkl")
+        from model_release import ReleaseManager
+
+        manager = ReleaseManager(
+            os.path.join(self.base_dir, "artifacts", "models"),
+            legacy_model_path=os.path.join(
+                self.base_dir, "models", "trained_model.pkl"
+            ),
+        )
+        managed = manager.active_artifact_path("predictions")
+        pred_path = os.fspath(managed) if managed else os.path.join(
+            self.base_dir, "outputs", "df_predictions.pkl"
+        )
         if not os.path.exists(pred_path):
             return None
         return pd.read_pickle(pred_path)

@@ -29,6 +29,11 @@ def test_jev_shadow_gate_is_audited_but_never_changes_signal(tmp_path):
         "predicted_return": 0.01,
         "predicted_return_smooth": 0.008,
         "timestamp": "2025-01-02 10:00:00",
+        "strategy_id": "tl_regime_breakout_v1",
+        "strategy_fingerprint": "sha256:test",
+        "model_release_id": "release-test",
+        "decision_id": "decision:test",
+        "decision_ready": True,
     }
 
     fused = engine.fuse(base_signal, use_llm=False)

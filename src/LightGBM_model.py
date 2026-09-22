@@ -7,6 +7,8 @@ import json
 import os
 import pickle
 import platform
+from datetime import datetime, timezone
+from pathlib import Path
 
 import lightgbm as lgb
 import numpy as np
@@ -19,6 +21,16 @@ from artifact_audit import extract_text_factor_metadata
 from feature_registry import FeatureGroups, discover_feature_groups
 from hierarchical_model import HierarchicalMacroMicroModel
 from jev_evaluation import load_semantic_gate_status
+from model_release import (
+    BASELINE_MAX_DRAWDOWN,
+    BASELINE_MIN_OBSERVATION_DAYS,
+    BASELINE_MIN_SHARPE,
+    BASELINE_MIN_TOTAL_RETURN,
+    ReleaseManager,
+    sha256_file,
+    write_candidate_manifest,
+)
+from strategy_runtime import get_strategy_spec
 from training_data import (
     LabelSpec,
     SplitSpec,
@@ -49,6 +61,16 @@ def _ic(target, prediction):
 
 def _json_number(value):
     return float(value) if value is not None and np.isfinite(value) else None
+
+
+def _json_default(value):
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, (pd.Timestamp, datetime)):
+        return value.isoformat()
+    if isinstance(value, Path):
+        return str(value)
+    raise TypeError(f"not JSON serializable: {type(value).__name__}")
 
 
 def _date_block_stability(frame, prediction, blocks=5):
@@ -93,6 +115,63 @@ def _release_gate_passed(promotion_eligible, sealed_holdout_ic):
         and np.isfinite(sealed_holdout_ic)
         and sealed_holdout_ic > 0
     )
+
+
+def _strategy_release_gate(
+    metrics,
+    *,
+    max_drawdown_limit=BASELINE_MAX_DRAWDOWN,
+    min_total_return=BASELINE_MIN_TOTAL_RETURN,
+    min_sharpe=BASELINE_MIN_SHARPE,
+):
+    """Cost-adjusted operational and performance gate for production release."""
+    if not 0 < float(max_drawdown_limit) <= BASELINE_MAX_DRAWDOWN:
+        raise ValueError(
+            "max_drawdown_limit must be in (0, 0.35]; the baseline can only "
+            "be tightened"
+        )
+    if float(min_total_return) < BASELINE_MIN_TOTAL_RETURN:
+        raise ValueError("min_total_return cannot weaken the zero baseline")
+    if float(min_sharpe) < BASELINE_MIN_SHARPE:
+        raise ValueError("min_sharpe cannot weaken the zero baseline")
+    required = (
+        "total_return",
+        "sharpe",
+        "annual_volatility",
+        "max_drawdown",
+        "active_ratio",
+        "observation_days",
+    )
+    if any(name not in metrics for name in required):
+        return False, "missing_metrics"
+    values = [metrics[name] for name in required]
+    if not all(np.isfinite(value) for value in values):
+        return False, "non_finite_metrics"
+    if int(metrics["observation_days"]) < BASELINE_MIN_OBSERVATION_DAYS:
+        return False, "insufficient_observation_days"
+    active_ratio = float(metrics["active_ratio"])
+    if active_ratio <= 0:
+        return False, "strategy_never_active"
+    if active_ratio > 1:
+        return False, "invalid_active_ratio"
+    if float(metrics["annual_volatility"]) < 0:
+        return False, "invalid_annual_volatility"
+    if not -1.0 <= float(metrics["max_drawdown"]) <= 0.0:
+        return False, "invalid_max_drawdown"
+    if float(metrics["total_return"]) <= float(min_total_return):
+        return False, "total_return_below_threshold"
+    if float(metrics["sharpe"]) <= float(min_sharpe):
+        return False, "sharpe_below_threshold"
+    if float(metrics["max_drawdown"]) < -float(max_drawdown_limit):
+        return False, "max_drawdown_breach"
+    return True, "passed"
+
+
+def _release_identifiers(strategy_fingerprint):
+    now = datetime.now(timezone.utc)
+    timestamp = now.strftime("%Y%m%dT%H%M%S%fZ")
+    suffix = str(strategy_fingerprint).split(":")[-1][:12]
+    return f"train-{timestamp}", f"tl-{timestamp}-{suffix}"
 
 
 def prepare_training_data(df, prediction_horizon=30, label_spec=None):
@@ -262,27 +341,35 @@ def _macro_block_permutation(
     return dict(sorted(result.items(), key=lambda item: abs(item[1]), reverse=True))
 
 
-def run_process(base_dir, max_lookback_months=9, time_decay_half_life=60):
+def run_process(
+    base_dir,
+    max_lookback_months=9,
+    time_decay_half_life=60,
+    *,
+    strategy_id=None,
+):
     print("\n" + "=" * 50)
     print("STEP 3: point-in-time model training")
     print("=" * 50)
-    factor_file = os.path.join(base_dir, "outputs/df_factors.pkl")
-    prediction_file = os.path.join(base_dir, "outputs/df_predictions.pkl")
-    model_file = os.path.join(base_dir, "models/trained_model.pkl")
-    importance_file = os.path.join(base_dir, "outputs/feature_importance.csv")
-    candidate_prediction_file = os.path.join(
-        base_dir, "outputs/df_predictions_candidate.pkl"
+    strategy_spec = get_strategy_spec(strategy_id)
+    run_id, release_id = _release_identifiers(strategy_spec.fingerprint())
+    candidate_dir = Path(base_dir) / "artifacts" / "experiments" / run_id
+
+    factor_file = os.path.join(base_dir, "outputs", "df_factors.pkl")
+    prediction_file = os.path.join(base_dir, "outputs", "df_predictions.pkl")
+    model_file = os.path.join(base_dir, "models", "trained_model.pkl")
+    importance_file = os.path.join(base_dir, "outputs", "feature_importance.csv")
+    report_projection = os.path.join(
+        base_dir, "outputs", "model_ablation_report.json"
     )
-    candidate_model_file = os.path.join(
-        base_dir, "models/trained_model_candidate.pkl"
-    )
-    candidate_importance_file = os.path.join(
-        base_dir, "outputs/feature_importance_candidate.csv"
-    )
-    report_file = os.path.join(base_dir, "outputs/model_ablation_report.json")
+    candidate_prediction_file = candidate_dir / "df_predictions.pkl"
+    candidate_model_file = candidate_dir / "trained_model.pkl"
+    candidate_importance_file = candidate_dir / "feature_importance.csv"
+    report_file = candidate_dir / "evaluation.json"
     if not os.path.exists(factor_file):
         print(f"[Model ERROR] missing factor file: {factor_file}")
         return False
+    candidate_dir.mkdir(parents=True, exist_ok=False)
     os.makedirs(os.path.dirname(model_file), exist_ok=True)
 
     raw = pd.read_pickle(factor_file)
@@ -401,13 +488,17 @@ def run_process(base_dir, max_lookback_months=9, time_decay_half_life=60):
         "feature_groups": groups.as_dict(),
         "text_factor_metadata": text_factor_metadata,
         "gp": gp_report,
+        "run_id": run_id,
+        "release_id": release_id,
+        "strategy_id": strategy_spec.strategy_id,
+        "strategy_version": strategy_spec.version,
+        "strategy_fingerprint": strategy_spec.fingerprint(),
     }
-    with open(report_file, "w", encoding="utf-8") as handle:
-        json.dump(report, handle, ensure_ascii=False, indent=2)
 
     holdout_out = holdout.copy()
     holdout_out["Pred_Ret"] = holdout_prediction
     holdout_out["Model_Used"] = deploy_kind
+    holdout_out["Model_Release_ID"] = release_id
     if deploy_kind == "hierarchical":
         components = hierarchy.components(holdout)
         for name in components:
@@ -416,10 +507,46 @@ def run_process(base_dir, max_lookback_months=9, time_decay_half_life=60):
         "date", "trade_dt", "ticker", "close", "adj_close", "Target_Ret",
         "Pred_Ret", "Market_Regime", "Model_Used", "micro_alpha", "macro_state",
         "gate_weight", "event_alpha",
+        "Model_Release_ID",
     ]
-    holdout_out[[name for name in output_cols if name in holdout_out]].to_pickle(
-        candidate_prediction_file
+    holdout_out = holdout_out[
+        [name for name in output_cols if name in holdout_out]
+    ].copy()
+
+    from backtest import evaluate_predictions
+
+    _, strategy_metrics, _ = evaluate_predictions(
+        holdout_out,
+        strategy_spec=strategy_spec,
+        model_release_id=release_id,
     )
+    max_drawdown_limit = float(
+        os.environ.get("F_AGENT_RELEASE_MAX_DRAWDOWN", "0.35")
+    )
+    min_total_return = float(
+        os.environ.get("F_AGENT_RELEASE_MIN_TOTAL_RETURN", "0.0")
+    )
+    min_sharpe = float(os.environ.get("F_AGENT_RELEASE_MIN_SHARPE", "0.0"))
+    strategy_gate_passed, strategy_gate_reason = _strategy_release_gate(
+        strategy_metrics,
+        max_drawdown_limit=max_drawdown_limit,
+        min_total_return=min_total_return,
+        min_sharpe=min_sharpe,
+    )
+    release_gate_passed = bool(release_gate_passed and strategy_gate_passed)
+    report.update(
+        {
+            "release_gate_passed": release_gate_passed,
+            "strategy_backtest": strategy_metrics,
+            "strategy_gate_passed": strategy_gate_passed,
+            "strategy_gate_reason": strategy_gate_reason,
+            "max_drawdown_limit": max_drawdown_limit,
+            "min_total_return": min_total_return,
+            "min_sharpe": min_sharpe,
+        }
+    )
+
+    holdout_out.to_pickle(candidate_prediction_file)
 
     importance = _feature_importance(flat, all_features)
     importance.to_csv(
@@ -427,6 +554,11 @@ def run_process(base_dir, max_lookback_months=9, time_decay_half_life=60):
     )
     artifacts = {
         "artifact_schema_version": 3,
+        "model_release_id": release_id,
+        "training_run_id": run_id,
+        "strategy_id": strategy_spec.strategy_id,
+        "strategy_version": strategy_spec.version,
+        "strategy_fingerprint": strategy_spec.fingerprint(),
         "model_base": flat,
         "model_active": None,
         "hierarchical_model": hierarchy,
@@ -453,6 +585,54 @@ def run_process(base_dir, max_lookback_months=9, time_decay_half_life=60):
     }
     with open(candidate_model_file, "wb") as handle:
         pickle.dump(artifacts, handle)
+    report["gate_attestation"] = {
+        "schema_version": 1,
+        "release_id": release_id,
+        "run_id": run_id,
+        "strategy_id": strategy_spec.strategy_id,
+        "strategy_fingerprint": strategy_spec.fingerprint(),
+        "model_sha256": sha256_file(candidate_model_file),
+        "gate_passed": release_gate_passed,
+        "policy": {
+            "min_observation_days": BASELINE_MIN_OBSERVATION_DAYS,
+            "min_total_return": min_total_return,
+            "min_sharpe": min_sharpe,
+            "max_drawdown_limit": max_drawdown_limit,
+        },
+    }
+    temporary_report = report_file.with_suffix(".json.tmp")
+    try:
+        with temporary_report.open("w", encoding="utf-8") as handle:
+            json.dump(
+                report,
+                handle,
+                ensure_ascii=False,
+                indent=2,
+                default=_json_default,
+            )
+        os.replace(temporary_report, report_file)
+    finally:
+        if temporary_report.exists():
+            temporary_report.unlink()
+
+    manifest_path = write_candidate_manifest(
+        candidate_dir,
+        release_id=release_id,
+        run_id=run_id,
+        artifacts={
+            "model": candidate_model_file.name,
+            "predictions": candidate_prediction_file.name,
+            "feature_importance": candidate_importance_file.name,
+            "evaluation": report_file.name,
+        },
+        metadata={
+            "strategy_id": strategy_spec.strategy_id,
+            "strategy_version": strategy_spec.version,
+            "strategy_fingerprint": strategy_spec.fingerprint(),
+            "release_gate_passed": release_gate_passed,
+            "strategy_gate_reason": strategy_gate_reason,
+        },
+    )
 
     print(f"[Model] validation IC: {validation_metrics}")
     print(f"[Model] selected on validation: {deploy_kind}")
@@ -464,10 +644,36 @@ def run_process(base_dir, max_lookback_months=9, time_decay_half_life=60):
             "[Model] RELEASE BLOCKED: candidate kept separately; "
             "production artifacts were not overwritten"
         )
+        print(f"[Model] candidate manifest: {manifest_path}")
         return False
 
-    os.replace(candidate_prediction_file, prediction_file)
-    os.replace(candidate_importance_file, importance_file)
-    os.replace(candidate_model_file, model_file)
-    print("[Model] release gate passed; production artifacts promoted atomically")
+    manager = ReleaseManager(
+        Path(base_dir) / "artifacts" / "models",
+        legacy_model_path=model_file,
+    )
+    signature = manager.promote(
+        manifest_path,
+        project_legacy=True,
+        legacy_artifact_name="model",
+    )
+
+    # These are compatibility views only. Runtime and backtest consumers read
+    # the verified managed release, so an old view can never become authority.
+    projections = {
+        "predictions": prediction_file,
+        "feature_importance": importance_file,
+        "evaluation": report_projection,
+    }
+    for artifact_name, destination in projections.items():
+        try:
+            manager.project_active_artifact(artifact_name, destination)
+        except Exception as exc:
+            print(
+                f"[Model WARNING] compatibility projection failed "
+                f"({artifact_name}): {exc}"
+            )
+    print(
+        "[Model] release gate passed; active release switched atomically: "
+        f"{signature.release_id}"
+    )
     return True

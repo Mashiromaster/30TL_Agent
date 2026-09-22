@@ -11,11 +11,16 @@ import pickle, os, sys, warnings
 from datetime import datetime
 warnings.filterwarnings('ignore')
 
-BASE_DIR = r"D:\桌面\F_Agent"
+from config import BASE_DIR
+
 FACTOR_FILE = os.path.join(BASE_DIR, "outputs/df_factors.pkl")
-PRED_FILE = os.path.join(BASE_DIR, "outputs/df_predictions.pkl")
-MODEL_FILE = os.path.join(BASE_DIR, "models/trained_model.pkl")
-IMPORTANCE_FILE = os.path.join(BASE_DIR, "outputs/feature_importance.csv")
+SOURCE_IMPORTANCE_FILE = os.path.join(BASE_DIR, "outputs/feature_importance.csv")
+RUN_ID = datetime.utcnow().strftime("legacy-train-final-%Y%m%dT%H%M%SZ")
+EXPERIMENT_DIR = os.path.join(BASE_DIR, "artifacts", "experiments", RUN_ID)
+os.makedirs(EXPERIMENT_DIR, exist_ok=False)
+PRED_FILE = os.path.join(EXPERIMENT_DIR, "df_predictions.pkl")
+MODEL_FILE = os.path.join(EXPERIMENT_DIR, "trained_model.pkl")
+IMPORTANCE_FILE = os.path.join(EXPERIMENT_DIR, "feature_importance.csv")
 
 print(f"\n{'#'*60}")
 print(f"#  完整重训练管道")
@@ -35,7 +40,10 @@ df['future_close'] = df['close'].shift(-31)
 df['Target_Ret'] = (df['future_close'] / df['next_close'] - 1) * 100
 
 # 用特征重要性预设的Top因子 + 新增因子
-imp_df = pd.read_csv(IMPORTANCE_FILE) if os.path.exists(IMPORTANCE_FILE) else None
+imp_df = (
+    pd.read_csv(SOURCE_IMPORTANCE_FILE)
+    if os.path.exists(SOURCE_IMPORTANCE_FILE) else None
+)
 
 if imp_df is not None and len(imp_df) > 0:
     top_features = imp_df[imp_df['importance'] > 0]['feature'].tolist()[:50]
@@ -303,7 +311,12 @@ print(f"STEP 7: 策略回测")
 print(f"{'='*60}")
 
 import backtest
-backtest.run_process(BASE_DIR)
+backtest.run_process(
+    BASE_DIR,
+    prediction_path=PRED_FILE,
+    strategy_id="tl_rank_sweetspot_legacy_v1",
+)
+print("[候选模式] 未发布；请使用 main.py --mode train 进入统一门禁。")
 
 # Summary
 print(f"\n{'#'*60}")

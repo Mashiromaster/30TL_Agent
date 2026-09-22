@@ -813,7 +813,7 @@ if __name__ == '__main__':
         print("推荐流程:")
         print("  1. python micro_cnn.py pipeline")
         print("  2. python main.py --mode train     # 用CNN特征重训练LightGBM")
-        print("  3. python self_evolution.py weekly  # 适配器也会用到CNN特征")
+        print("  3. 候选通过统一回测门禁后才会成为 managed release")
         sys.exit(1)
     
     command = sys.argv[1]

@@ -32,12 +32,16 @@ import os
 import sys
 import io
 import json
+import tempfile
 from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Optional, Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
+
+from config import BASE_DIR
+from intelligence_events import redact_sensitive_text
 
 # ═══ Windows Streamlit 全局修复 ═══
 # 仅在 Streamlit 环境下重定向 stdout/stderr 到 StringIO
@@ -54,9 +58,6 @@ if sys.platform == 'win32' and _importlib_util.find_spec('streamlit') is not Non
     except Exception:
         pass
 
-BASE_DIR = r"D:\桌面\F_Agent"
-
-
 # ============================================================
 # 数据结构
 # ============================================================
@@ -67,7 +68,7 @@ class FusedSignal:
     # 模型原始信号
     raw_direction: int = 0          # 1=做多, -1=做空, 0=观望
     raw_confidence: float = 0.0
-    pred_rank_pct: float = 0.5
+    pred_rank_pct: Optional[float] = None
     predicted_return: float = 0.0
     predicted_return_smooth: float = 0.0
     regime: str = '正常'
@@ -76,6 +77,9 @@ class FusedSignal:
     # 融合调整
     adjusted_direction: int = 0
     adjusted_weight: float = 0.0    # 下调后的仓位权重
+    proposed_direction: int = 0
+    proposed_weight: float = 0.0
+    shadow_only: bool = True
     confidence_modifier: float = 0.0 # 置信度修正 (-0.3 ~ +0.1)
     fusion_level: str = 'none'      # none / rule / rag / llm
 
@@ -99,6 +103,13 @@ class FusedSignal:
     jev_evidence_sufficient: float = 0.0
     jev_model: str = ''
 
+    # Base decision provenance.  Research layers may add evidence but cannot
+    # silently detach the result from the deterministic strategy decision.
+    strategy_id: str = ''
+    strategy_fingerprint: str = ''
+    model_release_id: str = ''
+    decision_id: str = ''
+
     timestamp: str = ''
 
     def to_dict(self) -> dict:
@@ -112,6 +123,9 @@ class FusedSignal:
             'model_used': self.model_used,
             'adjusted_direction': self.adjusted_direction,
             'adjusted_weight': self.adjusted_weight,
+            'proposed_direction': self.proposed_direction,
+            'proposed_weight': self.proposed_weight,
+            'shadow_only': self.shadow_only,
             'confidence_modifier': self.confidence_modifier,
             'fusion_level': self.fusion_level,
             'reasons': self.reasons,
@@ -126,6 +140,10 @@ class FusedSignal:
             'jev_gate_probabilities': self.jev_gate_probabilities,
             'jev_evidence_sufficient': self.jev_evidence_sufficient,
             'jev_model': self.jev_model,
+            'strategy_id': self.strategy_id,
+            'strategy_fingerprint': self.strategy_fingerprint,
+            'model_release_id': self.model_release_id,
+            'decision_id': self.decision_id,
             'timestamp': self.timestamp,
         }
 
@@ -153,13 +171,22 @@ class SignalFusionEngine:
         *,
         jev_client=None,
         jev_gate_mode=None,
+        allow_trade_adjustment: bool = False,
+        api_key=None,
     ):
         self.base_dir = base_dir
         self.output_dir = os.path.join(base_dir, "outputs")
         os.makedirs(self.output_dir, exist_ok=True)
+        if allow_trade_adjustment:
+            raise ValueError(
+                "research fusion cannot modify the canonical trading decision"
+            )
+        self.allow_trade_adjustment = False
 
         # LLM 配置
-        self.api_key = self._load_api_key()
+        self.api_key = (
+            str(api_key) if api_key is not None else self._load_api_key()
+        )
         self.llm_model = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
         self.llm_enabled = bool(self.api_key) and os.environ.get(
             'F_AGENT_FUSION_LLM', '1'
@@ -190,7 +217,6 @@ class SignalFusionEngine:
                             line = line.strip()
                             if line.startswith('DEEPSEEK_API_KEY='):
                                 key = line.split('=', 1)[1].strip().strip('"').strip("'")
-                                os.environ['DEEPSEEK_API_KEY'] = key
                                 break
                 except Exception:
                     pass
@@ -207,6 +233,7 @@ class SignalFusionEngine:
         rag=None,
         factor_alerts: list = None,
         use_llm: bool = True,
+        persist: bool = True,
     ) -> FusedSignal:
         """
         融合决策主入口。
@@ -223,19 +250,27 @@ class SignalFusionEngine:
         -------
         FusedSignal: 融合后的完整决策
         """
+        self._validate_base_signal(base_signal)
         if factor_alerts is None:
             factor_alerts = []
 
         fused = FusedSignal(
             raw_direction=base_signal.get('direction', 0),
             raw_confidence=base_signal.get('confidence', 0),
-            pred_rank_pct=base_signal.get('pred_rank_pct', 0.5),
+            pred_rank_pct=base_signal.get('pred_rank_pct'),
             predicted_return=base_signal.get('predicted_return', 0),
             predicted_return_smooth=base_signal.get('predicted_return_smooth', 0),
             regime=base_signal.get('regime_name', '正常'),
             model_used=base_signal.get('model_used', 'base'),
             adjusted_direction=base_signal.get('direction', 0),
             adjusted_weight=base_signal.get('suggested_weight', 0),
+            proposed_direction=base_signal.get('direction', 0),
+            proposed_weight=base_signal.get('suggested_weight', 0),
+            shadow_only=True,
+            strategy_id=str(base_signal.get('strategy_id', '')),
+            strategy_fingerprint=str(base_signal.get('strategy_fingerprint', '')),
+            model_release_id=str(base_signal.get('model_release_id', '')),
+            decision_id=str(base_signal.get('decision_id', '')),
             timestamp=base_signal.get('timestamp', datetime.now().isoformat()),
         )
 
@@ -259,10 +294,47 @@ class SignalFusionEngine:
         if use_llm and self.llm_enabled and fused.adjusted_direction != 0:
             self._apply_llm_judgment(fused, memory, rag, factor_alerts)
 
+        # RAG/LLM/memory output is research evidence.  It is recorded as a
+        # proposal, while the executable decision remains the deterministic
+        # SignalPolicy result.  This research module has no opt-in path to
+        # mutate the executable direction or weight.
+        fused.proposed_direction = fused.adjusted_direction
+        fused.proposed_weight = fused.adjusted_weight
+        fused.adjusted_direction = fused.raw_direction
+        fused.adjusted_weight = float(base_signal.get('suggested_weight', 0))
+        if (
+            fused.proposed_direction != fused.raw_direction
+            or fused.proposed_weight != fused.adjusted_weight
+        ):
+            fused.reasons.append(
+                '[安全边界] 研究层建议仅作影子记录，未修改基础交易决策'
+            )
+
         # 保存
-        self._save_fusion_result(fused)
+        if persist:
+            self._save_fusion_result(fused)
 
         return fused
+
+    @staticmethod
+    def _validate_base_signal(base_signal):
+        if not isinstance(base_signal, dict):
+            raise ValueError("base_signal must be a decision mapping")
+        if not base_signal.get('decision_ready', True):
+            raise ValueError("base_signal decision is not ready")
+        required = (
+            'timestamp', 'direction', 'suggested_weight', 'strategy_id',
+            'strategy_fingerprint', 'model_release_id', 'decision_id',
+        )
+        missing = [name for name in required if base_signal.get(name) in (None, '')]
+        if missing:
+            raise ValueError(f"base_signal missing provenance: {missing}")
+        direction = base_signal['direction']
+        if direction not in (-1, 0, 1):
+            raise ValueError("base_signal direction must be -1, 0, or 1")
+        weight = float(base_signal['suggested_weight'])
+        if not np.isfinite(weight) or not 0 <= weight <= 1:
+            raise ValueError("base_signal suggested_weight must be finite in [0, 1]")
 
     def _apply_jev_shadow(self, fused: FusedSignal, factor_alerts: list):
         """记录 Jev 风险判断；影子模式没有修改交易状态的权限。"""
@@ -301,7 +373,7 @@ class SignalFusionEngine:
             )
             fused.jev_model = str(result.get('model', ''))
         except Exception as e:
-            print(f"[Fusion] Jev 影子门控异常: {e}")
+            print(f"[Fusion] Jev 影子门控异常: {redact_sensitive_text(e)}")
 
     # ═══════════════════════════════════════════════════════════
     # Layer 1: 规则层
@@ -410,7 +482,7 @@ class SignalFusionEngine:
                 f"请检索近期是否有央行政策变动、利率调整、或重大宏观事件"
                 f"可能影响30年期国债期货的{fused.regime}市走势。"
             )
-            result = rag.query(query, top_k=5)
+            result = rag.query(query, top_k=5, as_of=fused.timestamp)
             if not result or 'answer' not in result:
                 return
 
@@ -426,7 +498,7 @@ class SignalFusionEngine:
 
             if bullish_hits > bearish_hits and bullish_hits >= 2:
                 fused.rag_policy_signals.append(
-                    f'RAG检索到{15}条偏多政策信号 (关键词: 降准/宽松/利空利率)'
+                    f'RAG文本命中{bullish_hits}个偏多关键词 (降准/宽松/利多债券)'
                 )
                 if fused.adjusted_direction == 1:
                     fused.supporting_evidence.append('政策面与模型做多方向一致')
@@ -443,7 +515,7 @@ class SignalFusionEngine:
 
             elif bearish_hits > bullish_hits and bearish_hits >= 2:
                 fused.rag_policy_signals.append(
-                    f'RAG检索到{15}条偏空政策信号 (关键词: 紧缩/利空/上行)'
+                    f'RAG文本命中{bearish_hits}个偏空关键词 (紧缩/利空/收益率上行)'
                 )
                 if fused.adjusted_direction == -1:
                     fused.supporting_evidence.append('政策面与模型做空方向一致')
@@ -466,8 +538,9 @@ class SignalFusionEngine:
                 )
 
         except Exception as e:
-            fused.reasons.append(f'[RAG·错误] 检索失败: {e}')
-            print(f"[Fusion] RAG 检索异常: {e}")
+            safe_error = redact_sensitive_text(e)
+            fused.reasons.append(f'[RAG·错误] 检索失败: {safe_error}')
+            print(f"[Fusion] RAG 检索异常: {safe_error}")
 
     # ═══════════════════════════════════════════════════════════
     # Layer 3: LLM 推理层
@@ -501,7 +574,7 @@ class SignalFusionEngine:
             )
 
         except Exception as e:
-            fused.reasons.append(f'[LLM·错误] {e}')
+            fused.reasons.append(f'[LLM·错误] {redact_sensitive_text(e)}')
 
     def _build_fusion_prompt(self, fused: FusedSignal, memory, factor_alerts: list):
         """构造 LLM 融合决策 Prompt"""
@@ -512,7 +585,11 @@ class SignalFusionEngine:
         parts.append(f"## 1. LightGBM 模型信号")
         parts.append(f"- 原始方向: {dir_name}")
         parts.append(f"- 置信度: {fused.raw_confidence:.1%}")
-        parts.append(f"- 排名分位: {fused.pred_rank_pct:.1%}")
+        rank_text = (
+            f"{fused.pred_rank_pct:.1%}"
+            if fused.pred_rank_pct is not None else "N/A"
+        )
+        parts.append(f"- 排名分位: {rank_text}")
         parts.append(f"- 预测收益 (平滑): {fused.predicted_return_smooth:+.4f}%")
         parts.append(f"- 市场状态: {fused.regime}")
         parts.append(f"- 使用模型: {fused.model_used}")
@@ -590,7 +667,7 @@ class SignalFusionEngine:
             )
             return response.choices[0].message.content
         except Exception as e:
-            print(f"[Fusion] LLM 调用失败: {e}")
+            print(f"[Fusion] LLM 调用失败: {redact_sensitive_text(e)}")
             return ""
 
     def _parse_llm_response(self, fused: FusedSignal, response: str):
@@ -668,15 +745,14 @@ class SignalFusionEngine:
                 'max_win_streak': stats.get('max_win_streak', 0),
             }
         except Exception as e:
-            print(f"[Fusion] Memory stats error: {e}")
+            print(f"[Fusion] Memory stats error: {redact_sensitive_text(e)}")
             return None
 
     def _save_fusion_result(self, fused: FusedSignal):
         """保存融合结果到 JSON"""
         try:
             path = os.path.join(self.output_dir, "fusion_signal.json")
-            with open(path, 'w', encoding='utf-8') as f:
-                json.dump(fused.to_dict(), f, ensure_ascii=False, indent=2)
+            self._atomic_json(path, fused.to_dict())
 
             # 追加到历史
             hist_path = os.path.join(self.output_dir, "fusion_history.json")
@@ -689,11 +765,28 @@ class SignalFusionEngine:
                     history = []
             history.append(fused.to_dict())
             history = history[-100:]  # 最多保留100条
-            with open(hist_path, 'w', encoding='utf-8') as f:
-                json.dump(history, f, ensure_ascii=False, indent=2)
+            self._atomic_json(hist_path, history)
 
         except Exception as e:
-            print(f"[Fusion] 保存失败: {e}")
+            print(f"[Fusion] 保存失败: {redact_sensitive_text(e)}")
+
+    @staticmethod
+    def _atomic_json(path, payload):
+        directory = os.path.dirname(path)
+        os.makedirs(directory, exist_ok=True)
+        descriptor, temporary = tempfile.mkstemp(
+            prefix=f".{os.path.basename(path)}.", suffix=".tmp", dir=directory
+        )
+        try:
+            with os.fdopen(descriptor, 'w', encoding='utf-8') as handle:
+                json.dump(payload, handle, ensure_ascii=False, indent=2)
+            os.replace(temporary, path)
+        except BaseException:
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
+            raise
 
     def get_history(self, n=20) -> list:
         """获取融合历史"""
@@ -716,27 +809,30 @@ def run_fusion(
     base_dir=BASE_DIR,
     base_signal: dict = None,
     use_llm: bool = True,
+    allow_trade_adjustment: bool = False,
+    persist: bool = True,
+    api_key=None,
 ) -> Optional[FusedSignal]:
     """
     一键融合决策。
 
-    如果 base_signal 为 None，尝试从 outputs/signal.json 加载。
+    ``base_signal`` 必须由当前 ModelRuntime/SignalPolicy 调用显式传入；
+    本模块不会回退到可能已过期的 JSON 信号。
     """
 
     # 延迟导入避免循环依赖
     from memory import TradingMemory
     from rag_tool import RAGAnalyzer
 
-    engine = SignalFusionEngine(base_dir)
+    engine = SignalFusionEngine(
+        base_dir,
+        allow_trade_adjustment=allow_trade_adjustment,
+        api_key=api_key,
+    )
 
-    # 加载信号
     if base_signal is None:
-        signal_path = os.path.join(base_dir, "outputs", "signal.json")
-        if not os.path.exists(signal_path):
-            print("[Fusion] 无信号文件")
-            return None
-        with open(signal_path, 'r', encoding='utf-8') as f:
-            base_signal = json.load(f)
+        print("[Fusion] 必须显式传入统一策略基础信号")
+        return None
 
     if not base_signal or base_signal.get('direction') is None:
         print("[Fusion] 信号数据不完整")
@@ -748,7 +844,7 @@ def run_fusion(
     # 加载 RAG (如果索引存在)
     rag = None
     try:
-        rag = RAGAnalyzer(base_dir)
+        rag = RAGAnalyzer(base_dir, api_key=api_key)
         # 检查索引是否已构建
         stats = rag.vector_store.get_stats() if hasattr(rag, 'vector_store') else {}
         if stats.get('total_chunks', 0) == 0:
@@ -766,6 +862,7 @@ def run_fusion(
         rag=rag,
         factor_alerts=factor_alerts,
         use_llm=use_llm,
+        persist=persist,
     )
 
     return fused

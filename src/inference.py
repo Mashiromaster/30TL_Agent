@@ -2,216 +2,95 @@
 # inference.py — Phase 2: 实时信号生成（训练/推理模式分离）
 
 import pandas as pd
-import numpy as np
 import os
-import pickle
 import json
-from datetime import datetime
+import tempfile
+
+from model_release import ModelReleaseError, ReleaseManager
+from strategy_runtime import ModelRuntime, SignalPolicy, get_strategy_spec
 
 
 class SignalGenerator:
-    """Load trained model and generate trading signals from factor data."""
+    """Backward-compatible facade over the canonical runtime and policy."""
 
-    def __init__(self, model_path):
-        with open(model_path, 'rb') as f:
-            artifacts = pickle.load(f)
-
-        self.model_base = artifacts['model_base']
-        self.model_active = artifacts.get('model_active')
-        self.scaler = artifacts['scaler']
-        self.features = artifacts['features']
-        self.hierarchical_model = artifacts.get('hierarchical_model')
-        self.selected_model_kind = artifacts.get('selected_model_kind', 'flat_combined')
-        self.gp_miner = artifacts.get('gp_miner')
-
-        self.signal_smooth_span = 160
-
-        # Regime-specific quantile thresholds (matching backtest logic)
-        self.thresholds = {
-            0: {'upper': 0.90, 'lower': 0.05},
-            1: {'upper': 0.80, 'lower': 0.20},
-            2: {'upper': 0.80, 'lower': 0.20},
-        }
-
-        # Legacy MoE artifacts used the test set for promotion. They are only
-        # eligible when a newer artifact explicitly records validation-OOF
-        # promotion and confirms that the sealed holdout was not used.
-        self.moe = None
-        moe_path = os.path.join(os.path.dirname(model_path), "moe_model.pkl")
-        if os.path.exists(moe_path):
-            try:
-                with open(moe_path, 'rb') as f:
-                    moe = pickle.load(f)
-                meta = moe.get('meta', {})
-                eligible = (
-                    meta.get('promote') is True
-                    and meta.get('promotion_basis') == 'validation_oof'
-                    and meta.get('sealed_holdout_used_for_selection') is False
+    def __init__(
+        self,
+        model_path,
+        strategy_id=None,
+        *,
+        runtime=None,
+        policy=None,
+        allow_legacy=False,
+    ):
+        model_path = os.path.abspath(os.fspath(model_path))
+        base_dir = os.path.dirname(os.path.dirname(model_path))
+        release_manager = ReleaseManager(
+            os.path.join(base_dir, "artifacts", "models"),
+            legacy_model_path=model_path,
+        )
+        signature = release_manager.current_signature()
+        if runtime is None:
+            if signature is None:
+                raise ModelReleaseError("no model release is available")
+            if signature.source != "release" and not allow_legacy:
+                raise ModelReleaseError(
+                    "unmanaged legacy pickle is disabled; train/promote a "
+                    "verified release or opt in only for offline migration"
                 )
-                if eligible:
-                    self.moe = moe
-                    self.features = moe['features']
-                    self.scaler = moe['scaler']
-                    print(f"[SignalGen] MoE 已启用 (组合 IC "
-                          f"{moe['meta']['moe_ic']:.4f} >= 基线 {moe['meta']['baseline_ic']:.4f})")
-                else:
-                    print("[SignalGen] MoE 无合格的验证集晋级凭证 → 沿用已选模型")
-            except Exception as e:
-                print(f"[SignalGen] MoE 加载失败，沿用 base/active: {e}")
+            resolved_path = os.fspath(signature.artifact_path)
+            self.runtime = ModelRuntime.from_path(resolved_path)
+        else:
+            self.runtime = runtime
+        self.spec = get_strategy_spec(strategy_id)
+        self.policy = policy or SignalPolicy(self.spec)
+        self.model_release_id = (
+            signature.release_id
+            if signature is not None and signature.release_id
+            else str(self.runtime.metadata.get("model_release_id", "legacy-unversioned"))
+        )
 
-        print(f"[SignalGen] 模型已加载: {len(self.features)} 个特征")
-        print(f"[SignalGen] 基础模型: {'OK' if self.model_base else 'MISSING'}")
-        print(f"[SignalGen] 高波动/趋势模型: {'OK' if self.model_active else '未训练'}")
+        # Compatibility attributes for callers that inspect the old facade.
+        self.model_base = self.runtime.model_base
+        self.model_active = self.runtime.model_active
+        self.scaler = self.runtime.scaler
+        self.features = list(self.runtime.features)
+        self.hierarchical_model = self.runtime.hierarchical_model
+        self.selected_model_kind = self.runtime.selected_model_kind
+        self.gp_miner = self.runtime.gp_miner
+
+        print(
+            f"[SignalGen] 模型已加载: {len(self.features)} 个特征; "
+            f"strategy={self.spec.strategy_id}; release={self.model_release_id}"
+        )
 
     def predict(self, df_factors):
-        """
-        Run prediction on factor DataFrame.
-        Routes rows to base or active model based on Market_Regime column.
-        """
-        df = df_factors.copy()
-
-        if self.gp_miner is not None and self.gp_miner.selected_programs_:
-            gp_inputs = self.gp_miner.feature_names_in_
-            missing_gp_inputs = [name for name in gp_inputs if name not in df]
-            if missing_gp_inputs:
-                raise ValueError(f"GP 输入 schema 不匹配，缺失: {missing_gp_inputs}")
-            generated = self.gp_miner.transform(df[gp_inputs])
-            for name in generated:
-                df[name] = generated[name]
-
-        # Ensure all required features exist
-        available = [f for f in self.features if f in df.columns]
-        missing = set(self.features) - set(available)
-        if missing:
-            raise ValueError(f"模型特征 schema 不匹配，缺失: {sorted(missing)}")
-
-        if self.selected_model_kind == 'hierarchical':
-            if self.hierarchical_model is None:
-                raise ValueError("模型声明为 hierarchical，但产物缺少 hierarchical_model")
-            components = self.hierarchical_model.components(df)
-            df['Pred_Ret'] = components['prediction']
-            df['Model_Used'] = 'hierarchical'
-            for col in ['micro_alpha', 'macro_state', 'gate_weight', 'event_alpha']:
-                df[col] = components[col]
-            return df
-
-        X = df[available]
-        X_scaled = self.scaler.transform(X)
-
-        n = len(df)
-
-        # MoE soft-routing path: y_hat = sum_i gate_i(x) * expert_i(x)
-        if self.moe is not None:
-            import moe_model
-            gate_feats = self.moe['gate_features']
-            for gf in gate_feats:
-                if gf not in df.columns:
-                    df[gf] = 0
-            gate_X = df[gate_feats].fillna(0).values
-            y_pred, weights = moe_model.moe_predict(
-                self.moe['gate'], self.moe['experts'], gate_X, X_scaled)
-            dominant = weights.argmax(axis=1)
-            df['Pred_Ret'] = y_pred
-            df['Model_Used'] = [moe_model.REGIME_NAMES[i] for i in dominant]
-            df['gate_w0'] = weights[:, 0]
-            df['gate_w1'] = weights[:, 1]
-            df['gate_w2'] = weights[:, 2]
-            return df
-
-        y_pred = np.zeros(n)
-        model_used = np.full(n, 'base', dtype=object)
-
-        regime = df['Market_Regime'].values if 'Market_Regime' in df.columns else np.zeros(n)
-
-        # Route: active model for regime 1 (high vol) or 2 (trend)
-        if self.model_active is not None:
-            active_mask = np.isin(regime, [1, 2])
-            if active_mask.sum() > 0:
-                y_pred[active_mask] = self.model_active.predict(X_scaled[active_mask])
-                model_used[active_mask] = 'active'
-
-        # Base model for remainder
-        base_mask = ~np.isin(regime, [1, 2]) if self.model_active is not None else np.ones(n, dtype=bool)
-        if base_mask.sum() > 0:
-            y_pred[base_mask] = self.model_base.predict(X_scaled[base_mask])
-
-        df['Pred_Ret'] = y_pred
-        df['Model_Used'] = model_used
-
-        return df
+        """Run model inference only; signal rules live in ``SignalPolicy``."""
+        return self.runtime.predict_frame(df_factors)
 
     def generate_signal(self, df_factors):
         """
         Generate trading signal for the LATEST bar.
         Returns (signal_dict, df_with_predictions).
         """
-        df = self.predict(df_factors)
-
-        # EMA smooth predictions
-        df['Pred_Smooth'] = df['Pred_Ret'].ewm(span=self.signal_smooth_span, adjust=False).mean()
-
-        # Lagged smoothed prediction for threshold calculation (no look-ahead)
-        pred_lagged = df['Pred_Smooth'].shift(1)
-
-        # Rolling quantile thresholds over expanding window
-        upper_q = pred_lagged.expanding(min_periods=100).quantile(
-            self.thresholds[0]['upper'])
-        lower_q = pred_lagged.expanding(min_periods=100).quantile(
-            self.thresholds[0]['lower'])
-
-        # Latest values
-        latest_smooth = df['Pred_Smooth'].iloc[-1]
-        latest_upper = upper_q.iloc[-1]
-        latest_lower = lower_q.iloc[-1]
-        latest_pred = df['Pred_Ret'].iloc[-1]
-        latest_regime = int(df['Market_Regime'].iloc[-1]) if 'Market_Regime' in df.columns else 0
-
-        # Direction from threshold breakout
-        if pd.notna(latest_smooth) and pd.notna(latest_upper) and pd.notna(latest_lower):
-            if latest_smooth > latest_upper:
-                direction = 1
-            elif latest_smooth < latest_lower:
-                direction = -1
-            else:
-                direction = 0
-        else:
-            direction = 0
-            latest_upper = 0.0
-            latest_lower = 0.0
-
-        # Confidence: distance from threshold normalized by prediction std
-        pred_std = df['Pred_Smooth'].std()
-        if direction == 1 and pred_std > 0:
-            confidence = min(1.0, (latest_smooth - latest_upper) / (pred_std + 1e-9))
-        elif direction == -1 and pred_std > 0:
-            confidence = min(1.0, (latest_lower - latest_smooth) / (pred_std + 1e-9))
-        else:
-            confidence = 0.0
-
-        # Suggested position weight (regime-adjusted)
-        weight_map = {0: 1.0, 1: 0.8, 2: 0.8}
-        suggested_weight = weight_map.get(latest_regime, 1.0) * confidence
-
-        latest = df.iloc[-1]
-        ts = str(latest['date']) if 'date' in df.columns else datetime.now().isoformat()
-
-        signal = {
-            'timestamp': ts,
-            'close': float(latest['close']) if 'close' in df.columns else None,
-            'market_regime': latest_regime,
-            'regime_name': ['正常', '高波动', '趋势'][latest_regime],
-            'predicted_return': round(float(latest_pred), 6),
-            'predicted_return_smooth': round(float(latest_smooth), 6),
-            'direction': direction,
-            'direction_name': {1: '做多', -1: '做空', 0: '观望'}[direction],
-            'confidence': round(float(confidence), 4),
-            'model_used': str(latest.get('Model_Used', 'base')),
-            'suggested_weight': round(float(suggested_weight), 4),
-            'upper_threshold': round(float(latest_upper), 6),
-            'lower_threshold': round(float(latest_lower), 6),
-        }
-
-        return signal, df
+        predictions = self.predict(df_factors)
+        evaluated = self.policy.evaluate_frame(
+            predictions, model_release_id=self.model_release_id
+        )
+        decision = self.policy.latest(
+            predictions, model_release_id=self.model_release_id
+        )
+        signal = decision.to_dict()
+        for key in (
+            "predicted_return",
+            "predicted_return_smooth",
+            "confidence",
+            "suggested_weight",
+            "upper_threshold",
+            "lower_threshold",
+        ):
+            if signal.get(key) is not None:
+                signal[key] = round(float(signal[key]), 6 if "return" in key or "threshold" in key else 4)
+        return signal, evaluated
 
     def print_signal(self, signal):
         """Pretty-print signal to console."""
@@ -225,8 +104,10 @@ class SignalGenerator:
         print(f"  市场状态:   {signal['regime_name']} (regime={signal['market_regime']})")
         print(f"  预测收益:   {signal['predicted_return']:.4f}%")
         print(f"  平滑预测:   {signal['predicted_return_smooth']:.4f}%")
-        print(f"  上阈值:     {signal['upper_threshold']:.4f}%")
-        print(f"  下阈值:     {signal['lower_threshold']:.4f}%")
+        upper = signal.get('upper_threshold')
+        lower = signal.get('lower_threshold')
+        print(f"  上阈值:     {upper:.4f}%" if upper is not None else "  上阈值:     N/A")
+        print(f"  下阈值:     {lower:.4f}%" if lower is not None else "  下阈值:     N/A")
         print(f"  " + "-" * 40)
         print(f"  信号方向:   {direction_mark.get(signal['direction'], '[????]')} {signal['direction_name']}")
         print(f"  置信度:     {signal['confidence']:.1%}")
@@ -235,7 +116,53 @@ class SignalGenerator:
         print("=" * 50)
 
 
-def run_inference(base_dir):
+def _atomic_json(destination, payload):
+    directory = os.path.dirname(destination)
+    os.makedirs(directory, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=f".{os.path.basename(destination)}.", suffix=".tmp", dir=directory
+    )
+    try:
+        with os.fdopen(descriptor, 'w', encoding='utf-8') as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2, default=str)
+        os.replace(temporary, destination)
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
+
+
+def _atomic_signal_history(destination, signal_out):
+    row = pd.DataFrame([signal_out])
+    if os.path.exists(destination):
+        history = pd.read_csv(destination)
+        history = pd.concat([history, row], ignore_index=True, sort=False)
+    else:
+        history = row
+    if 'decision_id' in history:
+        decision_ids = history['decision_id'].fillna('').astype(str)
+        keep = decision_ids.eq('') | ~decision_ids.duplicated(keep='last')
+        history = history.loc[keep]
+    directory = os.path.dirname(destination)
+    os.makedirs(directory, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=f".{os.path.basename(destination)}.", suffix=".tmp", dir=directory
+    )
+    os.close(descriptor)
+    try:
+        history.to_csv(temporary, index=False, encoding='utf-8-sig')
+        os.replace(temporary, destination)
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
+
+
+def run_inference(base_dir, *, strategy_id=None):
     """Full inference pipeline: factor extraction -> load model -> generate signal."""
     import factor_extraction
 
@@ -244,10 +171,15 @@ def run_inference(base_dir):
     SIGNAL_JSON = os.path.join(base_dir, "outputs/signal.json")
     SIGNAL_CSV = os.path.join(base_dir, "outputs/signal_history.csv")
 
-    # 1. Check model exists
-    if not os.path.exists(MODEL_FILE):
-        print(f"[Inference ERROR] 未找到模型文件: {MODEL_FILE}")
-        print(f"[Inference] 请先运行训练模式: python main.py --mode train")
+    # 1. Resolve either the active managed release or a read-only legacy model.
+    manager = ReleaseManager(
+        os.path.join(base_dir, "artifacts", "models"),
+        legacy_model_path=MODEL_FILE,
+    )
+    signature = manager.current_signature()
+    if signature is None or signature.source != "release":
+        print("[Inference ERROR] 未找到通过门禁的托管模型 release")
+        print("[Inference] 请先运行训练模式: python main.py --mode train")
         return False
 
     # 2. Run factor extraction (rebuilds df_factors.pkl)
@@ -260,7 +192,7 @@ def run_inference(base_dir):
     print("\n[2/3] 加载模型并生成信号...")
     df_factors = pd.read_pickle(FACTOR_FILE)
 
-    generator = SignalGenerator(MODEL_FILE)
+    generator = SignalGenerator(MODEL_FILE, strategy_id=strategy_id)
     signal, df_pred = generator.generate_signal(df_factors)
 
     # 4. Output
@@ -269,16 +201,17 @@ def run_inference(base_dir):
 
     # JSON output
     signal_out = {k: v for k, v in signal.items()}
-    with open(SIGNAL_JSON, 'w', encoding='utf-8') as f:
-        json.dump(signal_out, f, ensure_ascii=False, indent=2, default=str)
+    _atomic_json(SIGNAL_JSON, signal_out)
     print(f"\n[Inference] 信号JSON已保存: {SIGNAL_JSON}")
 
     # CSV history append
-    signal_row = pd.DataFrame([signal_out])
-    if os.path.exists(SIGNAL_CSV):
-        signal_row.to_csv(SIGNAL_CSV, mode='a', header=False, index=False, encoding='utf-8-sig')
-    else:
-        signal_row.to_csv(SIGNAL_CSV, index=False, encoding='utf-8-sig')
+    _atomic_signal_history(SIGNAL_CSV, signal_out)
     print(f"[Inference] 信号历史已追加: {SIGNAL_CSV}")
 
+    if not signal_out.get('decision_ready', True):
+        print(
+            "[Inference] 决策尚未就绪: "
+            f"{signal_out.get('missing_reason', 'insufficient_history')}"
+        )
+        return False
     return True

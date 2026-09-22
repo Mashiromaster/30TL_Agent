@@ -13,7 +13,7 @@ import os
 import sys
 import io
 import json
-import pickle
+import hashlib
 import subprocess
 from datetime import datetime
 
@@ -31,6 +31,7 @@ from rag_tool import RAGAnalyzer
 from memory import TradingMemory
 from signal_dashboard import SignalDashboard
 from self_iteration import SelfIterationEngine
+from intelligence_events import redact_sensitive_text
 
 st.set_page_config(
     page_title="F_Agent TL策略",
@@ -41,13 +42,15 @@ st.set_page_config(
 
 
 # ═══════════════════════════════════════════════════════════════
-# API Key 管理 — .env 文件 → 环境变量 → 侧边栏输入
+# API Key 管理 — 服务器密钥只读；用户密钥仅保存在当前 Streamlit session
 # ═══════════════════════════════════════════════════════════════
 
-def _load_dotenv(base_dir: str) -> dict:
-    """从 .env 文件加载键值对（不依赖 python-dotenv）"""
+def _load_server_api_key(base_dir: str) -> str:
+    """Read only the server DeepSeek secret without exporting it globally."""
+    configured = os.environ.get("DEEPSEEK_API_KEY", "")
+    if configured:
+        return configured
     env_path = os.path.join(base_dir, ".env")
-    env_vars = {}
     if os.path.exists(env_path):
         try:
             with open(env_path, 'r', encoding='utf-8') as f:
@@ -59,25 +62,20 @@ def _load_dotenv(base_dir: str) -> dict:
                         key, _, value = line.partition('=')
                         key = key.strip()
                         value = value.strip().strip('"').strip("'")
-                        if key and value:
-                            env_vars[key] = value
+                        if key.strip() == "DEEPSEEK_API_KEY" and value:
+                            return value
         except Exception:
             pass
-    return env_vars
+    return ""
 
 
-def _inject_api_key(key: str):
-    """将 API key 注入 os.environ，所有下游模块自动识别"""
-    if key:
-        os.environ["DEEPSEEK_API_KEY"] = key
-    else:
-        os.environ.pop("DEEPSEEK_API_KEY", None)
+_SERVER_DEEPSEEK_API_KEY = _load_server_api_key(BASE_DIR)
 
 
-# 启动时按优先级加载: .env > 系统环境变量
-_dotenv_vars = _load_dotenv(BASE_DIR)
-if "DEEPSEEK_API_KEY" in _dotenv_vars and not os.environ.get("DEEPSEEK_API_KEY"):
-    _inject_api_key(_dotenv_vars["DEEPSEEK_API_KEY"])
+def _effective_api_key():
+    return st.session_state.get("user_deepseek_api_key", "") or (
+        _SERVER_DEEPSEEK_API_KEY
+    )
 
 
 @st.cache_data(ttl=300, show_spinner="加载数据中...")
@@ -86,13 +84,63 @@ def load_ctx():
 
 
 @st.cache_resource
-def load_signal_dash():
+def _load_signal_dash_cached(model_signature, strategy_fingerprint):
     return SignalDashboard(BASE_DIR)
 
 
-@st.cache_resource
+def load_signal_dash():
+    """Cache the runtime by model bytes and StrategySpec, not process lifetime."""
+    from model_release import ReleaseManager
+    from strategy_runtime import get_strategy_spec
+
+    manager = ReleaseManager(
+        os.path.join(BASE_DIR, "artifacts", "models"),
+        legacy_model_path=os.path.join(BASE_DIR, "models", "trained_model.pkl"),
+    )
+    signature = manager.current_signature()
+    model_signature = (
+        (
+            signature.source,
+            signature.release_id,
+            signature.manifest_sha256,
+            signature.artifact_sha256,
+        )
+        if signature is not None
+        else ("missing", None, None, None)
+    )
+    strategy_fingerprint = get_strategy_spec().fingerprint()
+    return _load_signal_dash_cached(model_signature, strategy_fingerprint)
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def load_sentiment_snapshot():
+    from dataclasses import asdict
+    from intelligence_events import IntelligenceEventStore
+
+    db_path = os.path.join(BASE_DIR, "data", "intelligence", "events.sqlite")
+    if not os.path.exists(db_path):
+        return {"source_health": [], "assessments": [], "alerts": []}
+    store = IntelligenceEventStore(BASE_DIR)
+    return {
+        "source_health": [asdict(item) for item in store.list_source_health()],
+        "assessments": [asdict(item) for item in store.list_assessments()[-20:]],
+        "alerts": [asdict(item) for item in store.list_alerts()],
+    }
+
+
 def load_rag():
-    return RAGAnalyzer(BASE_DIR)
+    key = _effective_api_key()
+    key_fingerprint = hashlib.sha256(key.encode("utf-8")).hexdigest() if key else ""
+    if st.session_state.get("_rag_key_fingerprint") != key_fingerprint:
+        st.session_state["_rag_instance"] = RAGAnalyzer(
+            BASE_DIR, api_key=key
+        )
+        st.session_state["_rag_key_fingerprint"] = key_fingerprint
+    if "_rag_instance" not in st.session_state:
+        st.session_state["_rag_instance"] = RAGAnalyzer(
+            BASE_DIR, api_key=key
+        )
+    return st.session_state["_rag_instance"]
 
 
 @st.cache_resource
@@ -102,7 +150,7 @@ def load_iterator():
 
 def main():
     st.title("F_Agent — TL 30Y国债期货智能策略系统")
-    st.caption("LightGBM双模型 · 排名信号 · 自我迭代 · RAG增强")
+    st.caption("版本化模型 · 统一TL策略 · 舆情事件监控 · 可审计Research Agent")
 
     # Sidebar
     with st.sidebar:
@@ -110,33 +158,25 @@ def main():
 
         # ─── API Key ───
         st.subheader("🔑 API Key")
-        current_key = os.environ.get("DEEPSEEK_API_KEY", "")
-        key_status = "green" if current_key else "gray"
-
-        # Initialize session state for the key input
-        if "api_key_input" not in st.session_state:
-            st.session_state["api_key_input"] = current_key
-
         entered_key = st.text_input(
-            "DeepSeek API Key",
-            value=st.session_state["api_key_input"],
+            "本会话 DeepSeek API Key（可选）",
+            value="",
             type="password",
             placeholder="sk-...",
-            help="DeepSeek API Key，仅用于AI情报/RAG/记忆反思",
+            help=(
+                "只保存在当前浏览器会话，不写入环境变量、文件或其他会话。"
+                "留空时使用服务器已配置密钥（如有）。"
+            ),
             key="sidebar_api_key",
         )
-
-        if entered_key != st.session_state["api_key_input"]:
-            st.session_state["api_key_input"] = entered_key
-            _inject_api_key(entered_key)
-            st.rerun()
-
-        if not current_key:
+        st.session_state["user_deepseek_api_key"] = entered_key.strip()
+        if not _effective_api_key():
             st.caption(":gray[未设置 — AI情报/RAG/反思功能不可用]")
-            st.caption("配置方式: `.env` 文件 / 系统环境变量 / 上方输入框")
+            st.caption("可由服务器 secret/.env 配置，或仅在本会话输入。")
+        elif entered_key:
+            st.caption(":green[当前会话密钥已配置]")
         else:
-            masked = current_key[:7] + "..." + current_key[-4:] if len(current_key) > 11 else "***"
-            st.caption(f":green[已配置: {masked}]")
+            st.caption(":green[服务器密钥已配置；具体值不会显示]")
 
         st.divider()
 
@@ -157,20 +197,26 @@ def main():
             if sd.is_ready and ctx.df_factors is not None:
                 signal = sd.generate_live_signal(ctx.df_factors)
             else:
-                signal = ctx.signal
+                signal = None
 
-            if signal:
+            if signal and not signal.get('decision_ready', True):
+                st.warning(
+                    "策略历史不足，尚不可决策: "
+                    + signal.get('missing_reason', 'insufficient_history')
+                )
+            elif signal:
                 st.subheader("📡 实时信号")
                 d = signal.get('direction', 0)
                 d_label = {1: '🟢 LONG', -1: '🔴 SHORT', 0: '⚪ FLAT'}[d]
                 st.metric("方向", d_label)
                 st.metric("置信度", f"{signal.get('confidence', 0):.1%}")
-                st.metric("排名分位", f"{signal.get('pred_rank_pct', 0):.1%}")
+                rank = signal.get('pred_rank_pct')
+                st.metric("排名分位", f"{rank:.1%}" if rank is not None else "N/A")
                 st.metric("状态", signal.get('regime_name', 'N/A'))
             else:
                 st.warning("无信号数据")
         except Exception as e:
-            st.warning(f"数据加载: {e}")
+            st.warning(f"数据加载: {redact_sensitive_text(e)}")
 
         st.divider()
         st.caption(f"更新: {datetime.now().strftime('%H:%M:%S')}")
@@ -191,7 +237,7 @@ def main():
     try:
         ctx = load_ctx()
     except Exception as e:
-        st.error(f"数据加载失败: {e}")
+        st.error(f"数据加载失败: {redact_sensitive_text(e)}")
         return
 
     with tabs1[0]: render_signal_v2(ctx)
@@ -226,8 +272,14 @@ def render_signal_v2(ctx):
     if not signal:
         st.warning("信号生成失败 — 数据不足")
         return
+    if not signal.get('decision_ready', True):
+        st.warning(
+            "策略历史不足，尚不可决策: "
+            + signal.get('missing_reason', 'insufficient_history')
+        )
+        return
 
-    st.subheader("📡 实时交易信号 (排名信号系统)")
+    st.subheader("📡 TL 统一策略信号")
 
     # Top metric cards
     col1, col2, col3, col4, col5 = st.columns(5)
@@ -237,8 +289,12 @@ def render_signal_v2(ctx):
     with col1:
         st.metric("信号方向", signal['direction_name'], delta=None)
     with col2:
-        st.metric("预测排名分位", f"{signal['pred_rank_pct']:.1%}",
-                  delta=f"{signal['pred_rank_pct'] - 0.5:+.1%}" if signal['pred_rank_pct'] else None)
+        rank = signal.get('pred_rank_pct')
+        if rank is None:
+            st.metric("策略置信度", f"{signal['confidence']:.1%}")
+        else:
+            st.metric("预测排名分位", f"{rank:.1%}",
+                      delta=f"{rank - 0.5:+.1%}")
     with col3:
         st.metric("置信度", f"{signal['confidence']:.1%}")
     with col4:
@@ -252,26 +308,29 @@ def render_signal_v2(ctx):
     with col_a:
         st.markdown("**信号详情**")
         detail_data = {
-            '指标': ['预测收益(原始)', '预测收益(平滑)', '排名分位', '上阈值(70%)', '下阈值(30%)',
-                    '使用模型', '建议仓位', '信号确认'],
+            '指标': ['预测收益(原始)', '预测收益(平滑)', '排名分位', '上阈值', '下阈值',
+                    '使用模型', '目标仓位', '策略版本'],
             '值': [
                 f"{signal['predicted_return']:+.6f}%",
                 f"{signal['predicted_return_smooth']:+.6f}%",
-                f"{signal['pred_rank_pct']:.3f}",
-                '0.70', '0.30',
+                f"{rank:.3f}" if rank is not None else 'N/A',
+                f"{signal['upper_threshold']:.6f}" if signal.get('upper_threshold') is not None else 'N/A',
+                f"{signal['lower_threshold']:.6f}" if signal.get('lower_threshold') is not None else 'N/A',
                 signal['model_used'],
                 f"{signal['suggested_weight']:.1%}",
-                '10根bar连续同向',
+                signal.get('strategy_id', 'N/A'),
             ]
         }
         st.dataframe(pd.DataFrame(detail_data), hide_index=True, width='stretch')
 
     with col_b:
         st.markdown("**信号强度仪表**")
-        rank = signal.get('pred_rank_pct', 0.5)
+        rank = signal.get('pred_rank_pct')
+        gauge_value = (rank if rank is not None else signal.get('confidence', 0.0)) * 100
+        gauge_title = '预测排名分位 (%)' if rank is not None else '策略置信度 (%)'
         fig = go.Figure(go.Indicator(
             mode="gauge+number",
-            value=rank * 100,
+            value=gauge_value,
             number={'suffix': '%', 'font': {'size': 40}},
             gauge={
                 'axis': {'range': [0, 100], 'tickwidth': 1},
@@ -284,10 +343,10 @@ def render_signal_v2(ctx):
                 ],
                 'threshold': {
                     'line': {'color': d_color, 'width': 4},
-                    'thickness': 0.8, 'value': rank * 100,
+                    'thickness': 0.8, 'value': gauge_value,
                 }
             },
-            title={'text': '预测排名分位 (%)'},
+            title={'text': gauge_title},
         ))
         fig.update_layout(height=250, margin=dict(l=30, r=30, t=40, b=20))
         st.plotly_chart(fig, width='stretch')
@@ -407,33 +466,121 @@ def render_rag_v2(ctx):
 # Tab: AI 融合决策 (合并 AI情报 + RAG — signal_fusion 交叉决策)
 # ================================================================
 def render_ai_fusion(ctx):
-    st.subheader("🧠 AI 融合决策 (模型+RAG+记忆→交叉判断)")
+    st.subheader("🧠 Research Agent / 舆情监控")
 
     st.markdown("""
-    **三层融合架构**: 规则层 (记忆统计+异常因子) → RAG检索层 (政策面信号) → LLM推理层 (AI综合判断)
-    
-    模型原始信号经过交易记忆校准、RAG政策面验证、和LLM的情境推理后，输出最终调整后的交易信号。
+    **权限边界**: 模型与版本化策略产生唯一基础信号；舆情、RAG、Jev 与 LLM
+    只产生可追溯的研究证据和影子建议，不修改方向、仓位，也不下单。
     """)
+
+    with st.expander("📡 舆情监控 Agent", expanded=True):
+        mc1, mc2 = st.columns([1, 3])
+        with mc1:
+            if st.button("立即抓取一次", width='stretch', key="sentiment_run"):
+                with st.spinner("抓取、去重和事件分析中..."):
+                    try:
+                        from jev_client import JevClient
+                        from sentiment_monitor import SentimentMonitor
+                        run = SentimentMonitor(
+                            BASE_DIR, jev_adapter=JevClient(BASE_DIR)
+                        ).run_once()
+                        load_sentiment_snapshot.clear()
+                        message = (
+                            f"监控完成: {run.status}; 新文档 {run.documents_inserted}; "
+                            f"新评估 {run.assessments_created}; 预警 {run.alerts_opened}"
+                        )
+                        if run.status == 'failed':
+                            st.error(message)
+                        elif run.status == 'partial_failure':
+                            st.warning(message)
+                        else:
+                            st.success(message)
+                    except Exception as e:
+                        st.error(
+                            f"舆情监控失败: {redact_sensitive_text(e)}"
+                        )
+        snapshot = load_sentiment_snapshot()
+        health = snapshot.get('source_health', [])
+        with mc2:
+            if not health:
+                st.info("尚无舆情数据；可手动运行，或启用 10 分钟调度任务。")
+            else:
+                stale = [item for item in health if item.get('source_stale')]
+                if stale:
+                    st.warning("存在失效数据源：" + "、".join(
+                        item.get('source_name', '?') for item in stale
+                    ))
+                st.dataframe(pd.DataFrame(health), hide_index=True, width='stretch')
+
+        alerts = [item for item in snapshot.get('alerts', []) if item.get('status') == 'open']
+        assessments = snapshot.get('assessments', [])
+        a1, a2 = st.columns(2)
+        with a1:
+            st.markdown("**未处理预警**")
+            if alerts:
+                st.dataframe(pd.DataFrame(alerts), hide_index=True, width='stretch')
+            else:
+                st.caption("无未处理预警")
+        with a2:
+            st.markdown("**最近事件评估**")
+            if assessments:
+                view_cols = [
+                    name for name in (
+                        'assessed_at', 'event_type', 'severity', 'policy_stance',
+                        'bond_impact', 'confidence', 'prompt_injection_flag'
+                    ) if name in assessments[0]
+                ]
+                st.dataframe(
+                    pd.DataFrame(assessments)[view_cols], hide_index=True,
+                    width='stretch'
+                )
+            else:
+                st.caption("暂无事件评估")
+
+    canonical_signal = None
+    try:
+        signal_dash = load_signal_dash()
+        if signal_dash.is_ready and ctx.df_factors is not None:
+            canonical_signal = signal_dash.generate_live_signal(ctx.df_factors)
+            if canonical_signal:
+                canonical_signal = {
+                    key: value for key, value in canonical_signal.items()
+                    if key != 'df_full'
+                }
+                if not canonical_signal.get('decision_ready', True):
+                    canonical_signal = None
+    except Exception as exc:
+        st.warning(
+            f"统一基础信号不可用: {redact_sensitive_text(exc)}"
+        )
 
     # ── 完整 Research 闭环 (research_agent.run_cycle) ──
     with st.expander("▶ 运行完整 Research 闭环 (因子→信号→融合→记忆→回填)", expanded=False):
         st.caption("一键串起自动化链路，并把融合结果回流交易记忆，形成反馈闭环。")
-        cc1, cc2 = st.columns(2)
+        cc1, cc2, cc3 = st.columns(3)
         with cc1:
             loop_rebuild = st.checkbox("重建因子 (较慢)", value=False, key="loop_rebuild",
                                        help="勾选则重跑因子构建；否则用现有 df_factors.pkl")
         with cc2:
             loop_llm = st.checkbox("启用 LLM 推理", value=True, key="loop_llm")
+        with cc3:
+            loop_monitor = st.checkbox("同步监控舆情", value=True, key="loop_monitor")
         if st.button("▶ 运行完整闭环", width='stretch', key="loop_run"):
             with st.spinner("Research 闭环运行中..."):
                 try:
                     from research_agent import run_research
-                    report = run_research(BASE_DIR, rebuild_factors=loop_rebuild, use_llm=loop_llm)
+                    report = run_research(
+                        BASE_DIR,
+                        rebuild_factors=loop_rebuild,
+                        use_llm=loop_llm,
+                        monitor_sentiment=loop_monitor,
+                        api_key=_effective_api_key(),
+                    )
                     st.session_state['research_report'] = report
                 except Exception as e:
-                    st.error(f"闭环失败: {e}")
+                    st.error(f"闭环失败: {redact_sensitive_text(e)}")
                     import traceback
-                    st.code(traceback.format_exc())
+                    st.code(redact_sensitive_text(traceback.format_exc()))
 
         report = st.session_state.get('research_report')
         if report:
@@ -441,20 +588,31 @@ def render_ai_fusion(ctx):
             for step, status in report.get('step_status', {}).items():
                 icon = "✅" if status.startswith('ok') else ("⏭️" if status.startswith('skipped') else "❌")
                 st.write(f"{icon} `{step}` — {status}")
-            if report.get('direction_changed'):
-                st.warning("⚠ 融合调整了信号方向")
+            if report.get('research_proposal_changed'):
+                st.info("研究层给出了不同建议，基础交易信号未改变。")
 
-            # 融合层准确率 (反馈闭环度量)
+            # 影子研究情境：基础执行结果和未执行建议必须分开统计。
             try:
                 from memory import TradingMemory
-                fl = TradingMemory(BASE_DIR).reflection_stats().get('by_fusion_level', {})
-                if fl:
-                    st.markdown("**融合层级 × 准确率 (历史反馈):**")
+                contexts = TradingMemory(BASE_DIR).reflection_stats().get(
+                    'by_shadow_context', {}
+                )
+                if contexts:
+                    st.markdown("**影子研究情境：基础执行 vs 非执行建议（历史反馈）:**")
                     st.dataframe({
-                        '层级': list(fl.keys()),
-                        '准确率': [f"{v['accuracy']:.1%}" if v['accuracy'] is not None else "N/A"
-                                   for v in fl.values()],
-                        '样本': [v['count'] for v in fl.values()],
+                        '研究情境': list(contexts.keys()),
+                        '基础执行准确率': [
+                            f"{v['executed_accuracy']:.1%}"
+                            if v['executed_accuracy'] is not None else "N/A"
+                            for v in contexts.values()
+                        ],
+                        '影子建议准确率': [
+                            f"{v['proposal_accuracy']:.1%}"
+                            if v['proposal_accuracy'] is not None else "N/A"
+                            for v in contexts.values()
+                        ],
+                        '执行样本': [v['executed_acted'] for v in contexts.values()],
+                        '建议样本': [v['proposal_acted'] for v in contexts.values()],
                     }, width='stretch')
             except Exception:
                 pass
@@ -464,22 +622,29 @@ def render_ai_fusion(ctx):
         use_llm = st.checkbox("启用 LLM 推理", value=True, key="fusion_use_llm",
                              help="调用 DeepSeek 做最终综合判断 (需 API Key)")
     with col2:
-        if st.button("🚀 运行融合决策", width='stretch', type="primary", key="fusion_run"):
+        if st.button(
+            "🚀 运行融合决策",
+            width='stretch',
+            type="primary",
+            key="fusion_run",
+            disabled=canonical_signal is None,
+        ):
             with st.spinner("融合决策中... (规则→RAG→LLM)"):
                 try:
                     from signal_fusion import run_fusion
                     fused = run_fusion(
                         base_dir=BASE_DIR,
-                        base_signal=ctx.signal if ctx.signal else None,
+                        base_signal=canonical_signal,
                         use_llm=use_llm,
+                        api_key=_effective_api_key(),
                     )
                     st.session_state['fused_signal'] = fused
                 except Exception as e:
-                    st.error(f"融合失败: {e}")
+                    st.error(f"融合失败: {redact_sensitive_text(e)}")
                     import traceback
-                    st.code(traceback.format_exc())
+                    st.code(redact_sensitive_text(traceback.format_exc()))
     with col3:
-        signal = ctx.signal
+        signal = canonical_signal
         if signal:
             dir_name = {1: '做多', -1: '做空', 0: '观望'}.get(signal.get('direction', 0), '?')
             st.metric("模型原始信号", f"{dir_name} (置信度:{signal.get('confidence', 0):.0%})")
@@ -497,18 +662,21 @@ def render_ai_fusion(ctx):
         dir_map = {1: '做多 LONG', -1: '做空 SHORT', 0: '观望 FLAT'}
         old_dir = dir_map.get(fused.raw_direction, '?')
         new_dir = dir_map.get(fused.adjusted_direction, '?')
-        changed = fused.adjusted_direction != fused.raw_direction
+        proposed_dir = dir_map.get(fused.proposed_direction, '?')
 
         c1, c2, c3, c4 = st.columns(4)
         with c1:
             st.metric("原始方向", old_dir)
         with c2:
-            delta = f"← {old_dir}" if changed else None
-            st.metric("融合方向", new_dir, delta=delta, delta_color="off" if changed else "normal")
+            st.metric("基础方向（未改）", new_dir)
         with c3:
-            st.metric("仓位权重", f"{fused.adjusted_weight:.1%}")
+            st.metric("研究层建议", proposed_dir,
+                      delta=f"权重 {fused.proposed_weight:.1%}", delta_color="off")
         with c4:
             st.metric("决策层级", fused.fusion_level.upper())
+
+        if fused.shadow_only:
+            st.info("影子模式：研究建议仅记录和展示，不改变策略方向或仓位。")
 
         # Adjustment reasons
         if fused.reasons:
@@ -563,8 +731,9 @@ def render_ai_fusion(ctx):
                     rows.append({
                         '时间': h.get('timestamp', '')[:19],
                         '原始': od,
-                        '融合': nd,
-                        '仓位': f"{h.get('adjusted_weight', 0):.0%}",
+                        '基础': nd,
+                        '研究建议': dir_map.get(h.get('proposed_direction', 0), '?'),
+                        '建议权重': f"{h.get('proposed_weight', 0):.0%}",
                         '层级': h.get('fusion_level', 'none'),
                         '修正': f"{h.get('confidence_modifier', 0):+.2f}",
                     })
@@ -585,7 +754,9 @@ def render_ai_fusion(ctx):
         if st.button("🔎 检索", width='stretch', key="fusion_rag_btn") and query:
             try:
                 from rag_tool import RAGAnalyzer
-                rag = RAGAnalyzer(BASE_DIR)
+                rag = RAGAnalyzer(
+                    BASE_DIR, api_key=_effective_api_key()
+                )
                 result = rag.query(query, top_k=5)
                 st.divider()
                 st.markdown("#### 📝 RAG 回答")
@@ -596,7 +767,7 @@ def render_ai_fusion(ctx):
                         for s in sources:
                             st.caption(f"📄 {s.get('title', s.get('source', '?'))[:80]}")
             except Exception as e:
-                st.error(f"RAG 暂不可用: {e}")
+                st.error(f"RAG 暂不可用: {redact_sensitive_text(e)}")
 
 
 # ================================================================
@@ -653,7 +824,10 @@ def render_evolution_combined(ctx):
 
     # ── Tab 2: 微调迭代 (原自我进化 - LoRA式微调) ──
     with tab_e2:
-        st.markdown("**LoRA式增量学习**: 冻结基模型 → 每周训练小型适配器 → 每两月全量重训练")
+        st.warning(
+            "旧版 LoRA 式 AdapterStack 已停用：它没有统一 release manifest、"
+            "哈希绑定和回测门禁。模型更新统一走“训练候选 → 门禁 → ReleaseManager”。"
+        )
 
         # Load evolution status
         engine = None
@@ -663,7 +837,9 @@ def render_evolution_combined(ctx):
             status = engine.get_status()
         except Exception as e:
             status = _build_fallback_status(BASE_DIR)
-            st.warning(f"引擎初始化降级: {str(e)[:80]}")
+            st.warning(
+                f"引擎初始化降级: {redact_sensitive_text(e)[:80]}"
+            )
 
         col_e1, col_e2, col_e3, col_e4 = st.columns(4)
         with col_e1: st.metric("基模型", "✓" if status['base_model_loaded'] else "✗")
@@ -685,26 +861,27 @@ def render_evolution_combined(ctx):
         st.divider()
         col_a1, col_a2, col_a3 = st.columns(3)
         with col_a1:
-            if st.button("🔄 每周适配", width='stretch', key="evo_weekly2"):
-                import subprocess, sys
-                r = subprocess.run([sys.executable, "self_evolution.py", "weekly", BASE_DIR], cwd=os.path.join(BASE_DIR, "src"), capture_output=True, text=True, timeout=600)
-                if r.returncode == 0:
-                    st.success("适配完成!")
-                    st.rerun()
+            st.button(
+                "🔄 每周适配（已停用）",
+                width='stretch',
+                key="evo_weekly2",
+                disabled=True,
+            )
         with col_a2:
-            if st.button("🔧 双月重训练", width='stretch', key="evo_bim2"):
-                import subprocess, sys
-                r = subprocess.run([sys.executable, "self_evolution.py", "bimonthly", BASE_DIR], cwd=os.path.join(BASE_DIR, "src"), capture_output=True, text=True, timeout=1800)
-                if r.returncode == 0:
-                    st.success("全量重训练完成!")
-                    st.rerun()
+            st.button(
+                "🔧 旧双月重训练（已停用）",
+                width='stretch',
+                key="evo_bim2",
+                disabled=True,
+            )
         with col_a3:
-            if st.button("🔮 组合预测", width='stretch', key="evo_pred2"):
-                import subprocess, sys
-                r = subprocess.run([sys.executable, "self_evolution.py", "predict", BASE_DIR], cwd=os.path.join(BASE_DIR, "src"), capture_output=True, text=True, timeout=300)
-                if r.returncode == 0:
-                    st.success("组合预测已保存!")
-                    st.rerun()
+            st.button(
+                "🔮 适配器预测（已停用）",
+                width='stretch',
+                key="evo_pred2",
+                disabled=True,
+            )
+        st.caption("请在训练页执行受控训练；生产推理只读取当前 managed release。")
 
         # CNN status
         st.divider()
@@ -757,7 +934,9 @@ def render_memory_v2(ctx):
     with col3:
         if st.button("🤖 LLM反思分析", width='stretch'):
             with st.spinner("AI分析中..."):
-                reflection = mem.llm_reflection()
+                reflection = mem.llm_reflection(
+                    api_key=_effective_api_key()
+                )
             st.session_state['reflection_text'] = reflection
 
     # Statistics
@@ -1006,7 +1185,7 @@ def render_eval_tab(ctx):
                     cwd=os.path.join(BASE_DIR, "src"),
                     capture_output=True, text=True, timeout=120
                 )
-            st.session_state['eval_output'] = result.stdout
+            st.session_state['eval_output'] = redact_sensitive_text(result.stdout)
 
     if 'eval_output' in st.session_state:
         st.divider()
@@ -1162,9 +1341,11 @@ def render_hyperopt_tab(ctx):
                     cwd=os.path.join(BASE_DIR, "src"),
                     capture_output=True, text=True, timeout=600
                 )
-            st.session_state['hyper_output'] = result.stdout
+            st.session_state['hyper_output'] = redact_sensitive_text(result.stdout)
             if result.returncode != 0:
-                st.session_state['hyper_error'] = result.stderr
+                st.session_state['hyper_error'] = redact_sensitive_text(
+                    result.stderr
+                )
 
     if 'hyper_output' in st.session_state:
         st.divider()
@@ -1173,28 +1354,48 @@ def render_hyperopt_tab(ctx):
     if 'hyper_error' in st.session_state:
         st.error(st.session_state['hyper_error'][:500])
 
-    # Show current model params
+    # Show signed/hashed release metadata without deserializing a pickle in the
+    # long-lived web process.
     st.divider()
-    model_path = os.path.join(BASE_DIR, "models", "trained_model.pkl")
-    if os.path.exists(model_path):
-        with open(model_path, 'rb') as f:
-            m = pickle.load(f)
-        st.markdown("**当前模型**")
-        st.json({
-            'config': m.get('config', 'unknown'),
-            'features': len(m.get('features', [])),
-            'has_xgb': 'model_xgb' in m,
-            'has_weights': 'weights' in m,
-        })
+    try:
+        from model_release import ReleaseManager, load_manifest
+
+        manager = ReleaseManager(
+            os.path.join(BASE_DIR, "artifacts", "models"),
+            legacy_model_path=os.path.join(
+                BASE_DIR, "models", "trained_model.pkl"
+            ),
+        )
+        signature = manager.current_signature()
+        if signature is not None and signature.source == "release":
+            manifest = load_manifest(signature.manifest_path)
+            evaluation_path = manager.active_artifact_path("evaluation")
+            evaluation = (
+                json.loads(evaluation_path.read_text(encoding="utf-8"))
+                if evaluation_path is not None else {}
+            )
+            st.markdown("**当前托管模型 release**")
+            st.json({
+                "release_id": signature.release_id,
+                "model_sha256": signature.artifact_sha256,
+                "strategy_id": manifest.get("metadata", {}).get("strategy_id"),
+                "strategy_fingerprint": manifest.get("metadata", {}).get(
+                    "strategy_fingerprint"
+                ),
+                "selected_model": evaluation.get("selected_model"),
+                "release_gate_passed": evaluation.get("release_gate_passed"),
+            })
+        elif signature is not None:
+            st.warning("检测到未托管 legacy 模型；生产推理已禁用该 pickle。")
+    except Exception as exc:
+        st.error(
+            f"模型 release 元数据不可用: {redact_sensitive_text(exc)}"
+        )
 
     # Multi-horizon model status
     mh_path = os.path.join(BASE_DIR, "models", "multi_horizon_model.pkl")
     if os.path.exists(mh_path):
-        with open(mh_path, 'rb') as f:
-            mh = pickle.load(f)
-        st.markdown("**多时域模型**")
-        for h, r in mh.get('results', {}).items():
-            st.metric(f"{h}min", f"IC={r['ic']:.4f}")
+        st.caption("检测到未托管多时域 pickle；Dashboard 不会反序列化它。")
 
 
 # ================================================================
@@ -1220,16 +1421,17 @@ def render_cron_tab(ctx):
                     cwd=os.path.join(BASE_DIR, "src"),
                     capture_output=True, text=True, timeout=600
                 )
-            st.session_state['cron_all_output'] = result.stdout
+            st.session_state['cron_all_output'] = redact_sensitive_text(
+                result.stdout
+            )
 
     with col3:
-        daemon_running = False
         try:
-            import subprocess
-            check = subprocess.run(['tasklist', '/FI', 'IMAGENAME eq python.exe'], 
-                                   capture_output=True, text=True, timeout=5)
-            daemon_running = 'cron_scheduler' in check.stdout
-        except: pass
+            from cron_scheduler import daemon_is_running
+
+            daemon_running = daemon_is_running(BASE_DIR)
+        except Exception:
+            daemon_running = False
         st.metric("守护进程", "🟢 运行中" if daemon_running else "⚪ 未运行")
 
     # Job list
@@ -1237,14 +1439,10 @@ def render_cron_tab(ctx):
         with open(cron_path, 'r', encoding='utf-8') as f:
             jobs = json.load(f)
     else:
-        jobs = [
-            {"id": "daily_update", "name": "每日行情更新", "kind": "cron", "expr": "0 16 * * 1-5", "enabled": True, "command": "update"},
-            {"id": "daily_signal", "name": "每日信号生成", "kind": "cron", "expr": "0 16 * * 1-5", "enabled": True, "command": "inference"},
-            {"id": "weekly_eval", "name": "每周模型评估", "kind": "cron", "expr": "0 17 * * 5", "enabled": True, "command": "eval"},
-            {"id": "weekly_memory", "name": "每周记忆回填", "kind": "cron", "expr": "0 17 * * 5", "enabled": True, "command": "memory"},
-            {"id": "monthly_retrain", "name": "月度重训练", "kind": "cron", "expr": "0 9 1 * *", "enabled": True, "command": "retrain"},
-            {"id": "monthly_iteration", "name": "月度自迭代", "kind": "cron", "expr": "0 10 1 * *", "enabled": True, "command": "iterate"},
-        ]
+        import copy
+        from cron_scheduler import DEFAULT_JOBS
+
+        jobs = copy.deepcopy(DEFAULT_JOBS)
 
     st.divider()
     st.markdown("**任务列表**")
@@ -1270,7 +1468,9 @@ def render_cron_tab(ctx):
                         capture_output=True, text=True, timeout=300
                     )
                 job_key = 'cron_' + j['id'] + '_output'
-                st.session_state[job_key] = result.stdout
+                st.session_state[job_key] = redact_sensitive_text(
+                    result.stdout
+                )
                 st.rerun()
         with col_j3:
             new_state = not j.get('enabled', True)
@@ -1297,6 +1497,25 @@ def _build_fallback_status(base_dir):
     import os as _os, json as _json
     report = {}
     history = []
+    managed_release_loaded = False
+
+    try:
+        from model_release import ReleaseManager
+
+        manager = ReleaseManager(
+            _os.path.join(base_dir, "artifacts", "models"),
+            legacy_model_path=_os.path.join(
+                base_dir, "models", "trained_model.pkl"
+            ),
+        )
+        signature = manager.current_signature()
+        managed_release_loaded = bool(
+            signature is not None and signature.source == "release"
+        )
+    except Exception:
+        # A corrupt pointer or artifact is not a loaded model.  The detailed
+        # release panel reports the integrity error separately.
+        managed_release_loaded = False
     
     report_path = _os.path.join(base_dir, "outputs", "evolution_report.json")
     if _os.path.exists(report_path):
@@ -1318,7 +1537,7 @@ def _build_fallback_status(base_dir):
         except: pass
     
     return {
-        'base_model_loaded': _os.path.exists(_os.path.join(base_dir, "models", "trained_model.pkl")),
+        'base_model_loaded': managed_release_loaded,
         'adapter_stack_size': 0,
         'active_adapters': [],
         'latest_report': report,
@@ -1373,9 +1592,9 @@ def render_genetic_mining(ctx):
                 st.session_state['gp_df_new'] = df_new
 
             except Exception as e:
-                st.error(f"挖掘失败: {e}")
+                st.error(f"挖掘失败: {redact_sensitive_text(e)}")
                 import traceback
-                st.code(traceback.format_exc())
+                st.code(redact_sensitive_text(traceback.format_exc()))
                 return
 
         report = st.session_state.get('gp_report', {})
@@ -1502,22 +1721,16 @@ def render_genetic_mining(ctx):
 # Tab: 自我进化 (LoRA-inspired Self-Evolution)
 # ================================================================
 def render_evolution(ctx):
-    st.subheader("🔧 微调迭代 (LoRA-inspired + CNN 特征增强)")
+    st.subheader("🔧 模型迭代状态")
 
     st.markdown("""
-    **核心理念**: 冻结基模型 → 每周训练小型适配器学习残差 → 每两月全量重训练
-    
-    类比 LoRA 微调架构:
-    
-    | LoRA (神经网络) | F_Agent (树模型) |
-    |:--|:--|
-    | W' = W + A×B | f'(x) = f_base(x) + Σ g_adapter_i(x) × w_i |
-    | W: 冻结的预训练权重 | f_base: 冻结的LightGBM (200棵树) |
-    | A×B: 低秩适配矩阵 | g_adapter: 极小LGBM (20棵树, depth=2) |
-    | 参数量 ~1% | 参数量 ~1/20 |
+    旧版 AdapterStack 已退役，不再加载 `adapter_stack.pkl`，也不能写入生产预测。
+    当前唯一模型更新路径是：**训练候选 → 同策略成本后回测 → release gate →
+    ReleaseManager 原子切换**。漂移诊断仍可只读运行。
     """)
 
-    # Load evolution status (graceful fallback on corrupted adapter pickle)
+    # Read-only compatibility status. The engine never deserializes the legacy
+    # adapter pickle.
     engine = None
     engine_error = None
     try:
@@ -1525,21 +1738,11 @@ def render_evolution(ctx):
         engine = SelfEvolutionEngine(BASE_DIR)
         status = engine.get_status()
     except Exception as e:
-        engine_error = str(e)
-        # Try recovery: remove corrupted adapter pickle, load fresh
-        try:
-            import os as _os
-            stack_path = _os.path.join(BASE_DIR, "models", "adapter_stack.pkl")
-            if _os.path.exists(stack_path):
-                backup = stack_path + ".corrupted"
-                _os.rename(stack_path, backup)
-            engine = SelfEvolutionEngine(BASE_DIR)
-            status = engine.get_status()
-            st.warning(f"检测到损坏的适配器堆栈，已自动重置。原文件备份至 adapter_stack.pkl.corrupted")
-        except Exception as e2:
-            # Last resort: build minimal status from JSON files
-            status = _build_fallback_status(BASE_DIR)
-            st.warning(f"进化引擎初始化失败 (已降级到只读模式): {engine_error[:100]}")
+        engine_error = redact_sensitive_text(e)
+        status = _build_fallback_status(BASE_DIR)
+        st.warning(
+            f"进化状态读取失败（已降级到只读模式）: {engine_error[:100]}"
+        )
 
     # ─── Status cards ───
     col1, col2, col3, col4 = st.columns(4)
@@ -1568,7 +1771,7 @@ def render_evolution(ctx):
         df_adapters['验证IC'] = df_adapters['验证IC'].apply(lambda x: f"{x:.4f}")
         st.dataframe(df_adapters, width='stretch', hide_index=True)
     else:
-        st.info("暂无活跃适配器。运行一次每周适配来创建第一个适配器。")
+        st.info("旧版适配器已停用；当前不会加载或生成适配器。")
 
     st.divider()
 
@@ -1622,58 +1825,34 @@ def render_evolution(ctx):
     st.divider()
 
     # ─── Actions ───
-    st.markdown("**⚡ 手动操作**")
+    st.markdown("**⚡ 旧入口状态**")
 
     col_a1, col_a2, col_a3 = st.columns(3)
     with col_a1:
-        if st.button("🔄 运行每周适配", width='stretch', key="evo_weekly"):
-            with st.spinner("训练适配器中... (可能需要1-2分钟)"):
-                import subprocess, sys
-                result = subprocess.run(
-                    [sys.executable, "self_evolution.py", "weekly", BASE_DIR],
-                    cwd=os.path.join(BASE_DIR, "src"),
-                    capture_output=True, text=True, timeout=600
-                )
-            st.session_state['evo_weekly_output'] = result.stdout
-            if result.returncode == 0:
-                st.success("每周适配完成!")
-            else:
-                st.error(f"失败: {result.stderr[:200]}")
-            st.rerun()
+        st.button(
+            "🔄 每周适配（已停用）",
+            width='stretch',
+            key="evo_weekly",
+            disabled=True,
+        )
 
     with col_a2:
-        if st.button("🔧 双月全量重训练", width='stretch', key="evo_bimonthly", 
-                     help="吸收所有适配器经验，全量重训练基模型"):
-            with st.spinner("全量重训练中... (可能需要5-10分钟)"):
-                import subprocess, sys
-                result = subprocess.run(
-                    [sys.executable, "self_evolution.py", "bimonthly", BASE_DIR],
-                    cwd=os.path.join(BASE_DIR, "src"),
-                    capture_output=True, text=True, timeout=1800
-                )
-            st.session_state['evo_bimonthly_output'] = result.stdout
-            if result.returncode == 0:
-                st.success("全量重训练完成! 适配器堆栈已清空。")
-            else:
-                st.error(f"失败: {result.stderr[:200]}")
-            st.rerun()
+        st.button(
+            "🔧 旧双月重训练（已停用）",
+            width='stretch',
+            key="evo_bimonthly",
+            disabled=True,
+        )
 
     with col_a3:
-        if st.button("🔮 组合预测", width='stretch', key="evo_predict",
-                     help="用基模型+适配器生成组合预测"):
-            with st.spinner("生成组合预测..."):
-                import subprocess, sys
-                result = subprocess.run(
-                    [sys.executable, "self_evolution.py", "predict", BASE_DIR],
-                    cwd=os.path.join(BASE_DIR, "src"),
-                    capture_output=True, text=True, timeout=300
-                )
-            st.session_state['evo_predict_output'] = result.stdout
-            if result.returncode == 0:
-                st.success("组合预测已保存!")
-            else:
-                st.error(f"失败: {result.stderr[:200]}")
-            st.rerun()
+        st.button(
+            "🔮 适配器预测（已停用）",
+            width='stretch',
+            key="evo_predict",
+            disabled=True,
+        )
+
+    st.caption("请使用“训练候选”入口；只有通过统一门禁的 release 才能用于推理。")
 
     # Output sections
     for key, title in [
@@ -1713,28 +1892,19 @@ def render_evolution(ctx):
 
     # ─── Architecture Diagram ───
     st.divider()
-    st.markdown("**🏗️ 自我进化架构**")
+    st.markdown("**🏗️ 受控模型迭代架构**")
     st.markdown("""
     ```
     ┌──────────────────────────────────────────────────────────┐
-    │                    F_Agent 自我进化                       │
+    │  Point-in-time 特征 / 可选 CNN 研究特征                 │
+    │                         ↓                                │
+    │  候选训练 → 同一 SignalPolicy 成本后回测 → Gate Attestation │
+    │                         ↓                                │
+    │  ReleaseManager 校验哈希与门禁 → 原子切换 current.json   │
+    │                         ↓                                │
+    │  ModelRuntime 只加载 managed release → 信号/回测/记忆    │
     │                                                          │
-    │  ┌────────────────────┐      ┌──────────────────────┐   │
-    │  │  FrozenBaseModel   │      │    AdapterStack       │   │
-    │  │  (双月全量重训练)    │  +   │  ┌─────────────────┐  │   │
-    │  │                    │      │  │ adapter_W23  ×1.0│  │   │
-    │  │  LightGBM Dual     │      │  │ adapter_W22  ×0.85│  │   │
-    │  │  200 trees × d=3   │      │  │ adapter_W21  ×0.72│  │   │
-    │  │  91 features       │      │  │ ...            │  │   │
-    │  └────────────────────┘      │  └─────────────────┘  │   │
-    │                              └──────────────────────┘   │
-    │                                                          │
-    │  组合预测: final_pred = base_pred + Σ adapter_i × w_i    │
-    │                                                          │
-    │  ┌──────────────────────────────────────────────────┐   │
-    │  │  Weekly: 反馈分析 → 残差训练 (20树,d=2) → 推入堆栈  │   │
-    │  │  Bimonthly: 吸收经验 → 全量重训练 → 清空堆栈       │   │
-    │  └──────────────────────────────────────────────────┘   │
+    │  舆情/Jev/研究 Agent：仅 shadow evidence，不改交易仓位    │
     └──────────────────────────────────────────────────────────┘
     ```
     """)
@@ -1754,7 +1924,7 @@ def render_evolution(ctx):
         cnn = MicroCNNPipeline(BASE_DIR)
         cnn_status = cnn.get_status()
     except Exception as e:
-        cnn_status['error'] = str(e)[:100]
+        cnn_status['error'] = redact_sensitive_text(e)[:100]
         cnn_status['has_torch'] = False
 
     col_c1, col_c2, col_c3, col_c4 = st.columns(4)
@@ -1788,11 +1958,15 @@ def render_evolution(ctx):
                     cwd=os.path.join(BASE_DIR, "src"),
                     capture_output=True, text=True, timeout=1800
                 )
-            st.session_state['cnn_pipeline_output'] = result.stdout
+            st.session_state['cnn_pipeline_output'] = redact_sensitive_text(
+                result.stdout
+            )
             if result.returncode == 0:
                 st.success("CNN嵌入已注入! 下一轮LightGBM训练将自动使用CNN特征。")
             else:
-                st.error(f"失败: {result.stderr[:300]}")
+                st.error(
+                    f"失败: {redact_sensitive_text(result.stderr)[:300]}"
+                )
             st.rerun()
 
     with col_ca2:
@@ -1803,7 +1977,9 @@ def render_evolution(ctx):
                 cwd=os.path.join(BASE_DIR, "src"),
                 capture_output=True, text=True, timeout=30
             )
-            st.session_state['cnn_status_output'] = result.stdout
+            st.session_state['cnn_status_output'] = redact_sensitive_text(
+                result.stdout
+            )
             st.rerun()
 
     with col_ca3:
@@ -1815,11 +1991,15 @@ def render_evolution(ctx):
                 cwd=os.path.join(BASE_DIR, "src"),
                 capture_output=True, text=True, timeout=60
             )
-            st.session_state['cnn_inject_output'] = result.stdout
+            st.session_state['cnn_inject_output'] = redact_sensitive_text(
+                result.stdout
+            )
             if result.returncode == 0:
                 st.success("注入完成!")
             else:
-                st.error(f"失败: {result.stderr[:200]}")
+                st.error(
+                    f"失败: {redact_sensitive_text(result.stderr)[:200]}"
+                )
             st.rerun()
 
     for key, title in [
@@ -1832,24 +2012,22 @@ def render_evolution(ctx):
                 st.code(st.session_state[key][-2000:], language='text')
 
     st.markdown("""
-    **三阶段微调架构**
+    **模型迭代边界**
 
-    | 阶段 | 技术 | 频率 | 作用 |
+    | 阶段 | 技术 | 状态 | 作用 |
     |:--|:--|:--|:--|
-    | ① CNN嵌入 | 时空1D-CNN → 64维瓶颈 | 按需训练 | 学习微观结构时序模式的稠密表示 |
-    | ② LoRA适配 | 残差LGBM (20树,d=2) | 每周 | 基于反馈修正基模型预测偏误 |
-    | ③ 全量重训 | 完整LightGBM (200树,d=3) | 每两月 | 吸收适配器经验+CNN特征,重训基模型 |
+    | ① CNN嵌入 | 时空1D-CNN → 64维瓶颈 | 研究特征 | 生成候选特征，不能直接发布模型 |
+    | ② AdapterStack | 旧残差LGBM pickle | 已停用 | 不再读取、写入或参与预测 |
+    | ③ 受控训练 | 候选 + 回测 + attestation | 唯一入口 | 通过 ReleaseManager 原子发布 |
 
     ```
     微观特征 (25×30bar窗口)
         ↓ 1D Temporal CNN
-    64维瓶颈嵌入 ←── 注入 df_factors.pkl
+    64维瓶颈嵌入（候选特征）
         ↓
-    LightGBM (91+64=155特征) ←── 基模型
+    统一训练 / 回测 / release gate
         ↓
-    + AdapterStack (每周残差修正)
-        ↓
-    最终预测
+    managed release → ModelRuntime
     ```
     """)
 

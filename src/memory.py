@@ -6,22 +6,46 @@ import pandas as pd
 import numpy as np
 import os
 import json
+import tempfile
 from datetime import datetime
+
+from strategy_runtime import SignalPolicy, get_strategy_spec
 
 
 class TradingMemory:
     """Trading decision journal with historical backfill and reflection."""
 
-    def __init__(self, base_dir):
+    def __init__(self, base_dir, strategy_id=None, *, policy=None):
         self.base_dir = base_dir
         self.memory_path = os.path.join(base_dir, "outputs/trade_memory.jsonl")
-        self.signal_smooth_span = 160
+        self.strategy_spec = get_strategy_spec(strategy_id)
+        self.policy = policy or SignalPolicy(self.strategy_spec)
 
-        self.thresholds = {
-            0: {'upper': 0.90, 'lower': 0.05},
-            1: {'upper': 0.80, 'lower': 0.20},
-            2: {'upper': 0.80, 'lower': 0.20},
-        }
+    def _prediction_path(self):
+        from model_release import ReleaseManager
+
+        manager = ReleaseManager(
+            os.path.join(self.base_dir, "artifacts", "models"),
+            legacy_model_path=os.path.join(
+                self.base_dir, "models", "trained_model.pkl"
+            ),
+        )
+        managed = manager.active_artifact_path("predictions")
+        if managed is not None:
+            return os.fspath(managed)
+        return os.path.join(self.base_dir, "outputs", "df_predictions.pkl")
+
+    @staticmethod
+    def _prediction_release_id(df):
+        """Require one provenance domain for a prediction snapshot."""
+        if 'Model_Release_ID' not in df.columns or len(df) == 0:
+            return 'legacy-unversioned'
+        if df['Model_Release_ID'].isna().any():
+            raise ValueError("prediction frame has missing Model_Release_ID values")
+        release_ids = df['Model_Release_ID'].astype(str).unique()
+        if len(release_ids) != 1:
+            raise ValueError("prediction frame mixes multiple model releases")
+        return str(release_ids[0])
 
     # ─── I/O ──────────────────────────────────────────────
 
@@ -39,17 +63,32 @@ class TradingMemory:
                         continue
         return records
 
-    def _append_record(self, record):
-        with open(self.memory_path, 'a', encoding='utf-8') as f:
-            f.write(json.dumps(record, ensure_ascii=False, default=str) + '\n')
-
     def _rewrite_all(self, records):
-        with open(self.memory_path, 'w', encoding='utf-8') as f:
-            for r in records:
-                f.write(json.dumps(r, ensure_ascii=False, default=str) + '\n')
+        output_dir = os.path.dirname(self.memory_path)
+        os.makedirs(output_dir, exist_ok=True)
+        descriptor, temporary_path = tempfile.mkstemp(
+            prefix='.trade_memory.', suffix='.tmp', dir=output_dir
+        )
+        try:
+            with os.fdopen(descriptor, 'w', encoding='utf-8') as f:
+                for r in records:
+                    f.write(json.dumps(r, ensure_ascii=False, default=str) + '\n')
+            os.replace(temporary_path, self.memory_path)
+        except Exception:
+            try:
+                os.unlink(temporary_path)
+            except OSError:
+                pass
+            raise
 
-    def get_recent(self, n=10):
+    def get_recent(self, n=10, *, include_other_strategies=False):
         records = self._load_all()
+        if not include_other_strategies:
+            fingerprint = self.strategy_spec.fingerprint()
+            records = [
+                record for record in records
+                if record.get('strategy_fingerprint') == fingerprint
+            ]
         return records[-n:]
 
     # ─── Core: record daily signal ─────────────────────────
@@ -58,8 +97,21 @@ class TradingMemory:
         """Append one day's trading decision to the memory journal."""
         existing = self._load_all()
         trade_dt = str(signal_dict.get('timestamp', ''))[:10]
-        # Dedup: overwrite if same trade_dt exists
-        existing = [r for r in existing if r.get('trade_dt') != trade_dt]
+        decision_id = str(signal_dict.get('decision_id', '') or '')
+        strategy_fingerprint = str(
+            signal_dict.get('strategy_fingerprint', 'legacy-unknown')
+        )
+        if decision_id:
+            existing = [r for r in existing if r.get('decision_id') != decision_id]
+        else:
+            existing = [
+                r for r in existing
+                if not (
+                    r.get('trade_dt') == trade_dt
+                    and r.get('strategy_fingerprint', 'legacy-unknown')
+                    == strategy_fingerprint
+                )
+            ]
 
         record = {
             'trade_dt': trade_dt,
@@ -76,11 +128,25 @@ class TradingMemory:
             'lower_threshold': signal_dict.get('lower_threshold', 0),
             'suggested_weight': signal_dict.get('suggested_weight', 0),
             'model_used': signal_dict.get('model_used', ''),
+            'decision_id': decision_id,
+            'strategy_id': signal_dict.get('strategy_id', 'legacy-unknown'),
+            'strategy_version': signal_dict.get('strategy_version'),
+            'strategy_fingerprint': strategy_fingerprint,
+            'model_release_id': signal_dict.get(
+                'model_release_id', 'legacy-unversioned'
+            ),
+            'effective_from': signal_dict.get('effective_from'),
             # Fusion feedback (defaults fall back to raw signal → backward compatible)
             'fused_direction': signal_dict.get('fused_direction', signal_dict.get('direction', 0)),
             'fused_weight': signal_dict.get('fused_weight', signal_dict.get('suggested_weight', 0)),
             'fusion_level': signal_dict.get('fusion_level', 'none'),
             'fusion_reasons': signal_dict.get('fusion_reasons', []),
+            'research_proposed_direction': signal_dict.get(
+                'research_proposed_direction'
+            ),
+            'research_proposed_weight': signal_dict.get(
+                'research_proposed_weight'
+            ),
             'actual_return': None,
             'is_correct': None,
             'recorded_at': datetime.now().isoformat(),
@@ -93,124 +159,120 @@ class TradingMemory:
     # ─── Historical backfill ───────────────────────────────
 
     def backfill_from_predictions(self):
-        """Reconstruct daily signals from df_predictions.pkl using
-        the RANK-BASED signal logic (same as SignalDashboard / backtest_v2).
-        This replaces the old absolute-threshold approach."""
-        pred_path = os.path.join(self.base_dir, "outputs/df_predictions.pkl")
+        """Rebuild research memory with the canonical SignalPolicy."""
+        pred_path = self._prediction_path()
         if not os.path.exists(pred_path):
             print(f"[Memory] 找不到预测文件: {pred_path}")
             return 0
 
         df = pd.read_pickle(pred_path)
-        required = ['date', 'trade_dt', 'close', 'Pred_Ret', 'Target_Ret', 'Market_Regime']
-        missing = [c for c in required if c not in df.columns]
+        required = {'date', 'close', 'Pred_Ret'}
+        missing = sorted(required.difference(df.columns))
         if missing:
             print(f"[Memory] 预测文件缺少列: {missing}")
             return 0
+        if 'trade_dt' not in df.columns:
+            df = df.copy()
+            df['trade_dt'] = pd.to_datetime(df['date']).dt.strftime('%Y-%m-%d')
 
-        df = df.sort_values('date').reset_index(drop=True)
-
-        # === 甜点区排名信号 (基于记忆回测优化, 2026-06-03) ===
-        smooth_span = 60
-        lookback = 480
-        confirm_bars = 10
-        # 做空甜点区: rank 15%-30%  (准确率72.7%)
-        # 做多甜点区: rank 70%-85%  (准确率63.6%)
-        short_inner = 0.15
-        short_outer = 0.30
-        long_inner = 0.70
-        long_outer = 0.85
-
-        df['Pred_Smooth'] = df['Pred_Ret'].ewm(span=smooth_span, adjust=False).mean()
-
-        # 计算滚动排名
-        df['Pred_Rank'] = np.nan
-        for i in range(lookback, len(df)):
-            window = df['Pred_Smooth'].iloc[i - lookback:i]
-            current = df['Pred_Smooth'].iloc[i]
-            df.loc[df.index[i], 'Pred_Rank'] = (window < current).sum() / len(window)
-
-        # 甜点区信号: 仅交易中间置信度区域
-        df['Raw_Signal'] = 0
-        df.loc[(df['Pred_Rank'] >= short_inner) & (df['Pred_Rank'] < short_outer), 'Raw_Signal'] = -1
-        df.loc[(df['Pred_Rank'] >= long_inner) & (df['Pred_Rank'] < long_outer), 'Raw_Signal'] = 1
-
-        # 信号确认
-        df['Confirmed_Signal'] = 0
-        for i in range(confirm_bars, len(df)):
-            ws = df['Raw_Signal'].iloc[i - confirm_bars:i]
-            if (ws == 1).all():
-                df.loc[df.index[i], 'Confirmed_Signal'] = 1
-            elif (ws == -1).all():
-                df.loc[df.index[i], 'Confirmed_Signal'] = -1
-
-        # 按交易日期取最后一条bar的信号
-        unique_dates = sorted(df['trade_dt'].unique())
-        records = []
-
-        for dt in unique_dates:
-            day_bars = df[df['trade_dt'] == dt]
-            if len(day_bars) == 0:
-                continue
-
+        release_id = self._prediction_release_id(df)
+        evaluated = self.policy.evaluate_frame(
+            df, model_release_id=release_id
+        )
+        current_records = []
+        for _, day_bars in evaluated.groupby(evaluated['trade_dt'].astype(str)):
             last = day_bars.iloc[-1]
-            signal = int(last['Confirmed_Signal'])
-            regime = int(last['Market_Regime']) if pd.notna(last['Market_Regime']) else 0
-            rank = float(last['Pred_Rank']) if pd.notna(last['Pred_Rank']) else 0.5
-
-            # 置信度：排名距离0.5的距离 × 2
-            confidence = round(abs(rank - 0.5) * 2, 3)
-
-            weight_map = {0: 1.0, 1: 0.8, 2: 0.8}
-            suggested_weight = round(weight_map.get(regime, 1.0) * confidence, 3)
-
+            if not bool(last.get('Decision_Ready', False)):
+                continue
+            timestamp = pd.Timestamp(last['date'])
+            decision_id = self.policy.decision_id_for_evaluated_row(
+                last, model_release_id=release_id
+            )
+            direction = int(last['Direction'])
+            regime = int(last.get('Market_Regime', 0) or 0)
+            actual = last.get('Target_Ret')
+            actual_value = (
+                round(float(actual), 6) if pd.notna(actual) else None
+            )
             record = {
-                'trade_dt': str(dt)[:10],
-                'timestamp': str(last['date']),
-                'close': float(last['close']) if pd.notna(last.get('close')) else None,
+                'trade_dt': str(last['trade_dt'])[:10],
+                'timestamp': str(timestamp),
+                'effective_from': (
+                    str(last['Effective_From'])
+                    if pd.notna(last['Effective_From']) else None
+                ),
+                'close': float(last['close']) if pd.notna(last['close']) else None,
                 'market_regime': regime,
-                'regime_name': ['正常', '高波动', '趋势'][regime],
-                'direction': signal,
-                'direction_name': {1: '做多', -1: '做空', 0: '观望'}[signal],
-                'confidence': confidence,
-                'predicted_return_smooth': round(float(last['Pred_Smooth']), 6) if pd.notna(last['Pred_Smooth']) else 0,
-                'pred_rank_pct': round(rank, 3),
-                'upper_threshold': round(long_inner, 2),
-                'lower_threshold': round(short_outer, 2),
-                'upper_outer': round(long_outer, 2),
-                'lower_inner': round(short_inner, 2),
-                'suggested_weight': suggested_weight,
-                'model_used': 'base',
-                'actual_return': None,
-                'is_correct': None,
+                'regime_name': {0: '正常', 1: '高波动', 2: '趋势'}.get(regime, '未知'),
+                'direction': direction,
+                'direction_name': {1: '做多', -1: '做空', 0: '观望'}[direction],
+                'confidence': round(float(last['Confidence']), 4),
+                'predicted_return_smooth': round(float(last['Pred_Smooth']), 6),
+                'pred_rank_pct': (
+                    round(float(last['Pred_Rank']), 4)
+                    if pd.notna(last['Pred_Rank']) else None
+                ),
+                'upper_threshold': (
+                    round(float(last['Upper_Q']), 6)
+                    if pd.notna(last['Upper_Q']) else None
+                ),
+                'lower_threshold': (
+                    round(float(last['Lower_Q']), 6)
+                    if pd.notna(last['Lower_Q']) else None
+                ),
+                'suggested_weight': round(abs(float(last['Target_Position'])), 4),
+                'model_used': str(last.get('Model_Used', 'base')),
+                'decision_id': decision_id,
+                'strategy_id': self.strategy_spec.strategy_id,
+                'strategy_version': self.strategy_spec.version,
+                'strategy_fingerprint': self.strategy_spec.fingerprint(),
+                'model_release_id': release_id,
+                'actual_return': actual_value,
+                'actual_source': 'prediction_label' if actual_value is not None else None,
+                'is_correct': (
+                    bool(np.sign(direction) == np.sign(actual_value))
+                    if direction and actual_value is not None else None
+                ),
                 'recorded_at': datetime.now().isoformat(),
             }
-            records.append(record)
+            current_records.append(record)
 
-        # Write all records
-        self._rewrite_all(records)
-        print(f"[Memory] 历史回填完成: {len(records)} 条记录")
-
-        # Backfill actual outcomes
-        self.update_actuals()
-        return len(records)
+        fingerprint = self.strategy_spec.fingerprint()
+        retained_records = [
+            record for record in self._load_all()
+            if record.get('strategy_fingerprint') != fingerprint
+        ]
+        self._rewrite_all(retained_records + current_records)
+        print(
+            f"[Memory] 历史回填完成: {len(current_records)} 条 "
+            f"({self.strategy_spec.strategy_id})"
+        )
+        return len(current_records)
 
     # ─── Outcome tracking ──────────────────────────────────
 
     def update_actuals(self):
         """Backfill actual_return and is_correct for records whose outcomes are now known."""
-        pred_path = os.path.join(self.base_dir, "outputs/df_predictions.pkl")
+        pred_path = self._prediction_path()
         if not os.path.exists(pred_path):
             print("[Memory] 无可用于回填实际结果的预测文件")
             return
 
         df = pd.read_pickle(pred_path)
+        if 'trade_dt' not in df.columns and 'date' in df.columns:
+            df = df.copy()
+            df['trade_dt'] = pd.to_datetime(df['date']).dt.strftime('%Y-%m-%d')
+        release_id = self._prediction_release_id(df)
         records = self._load_all()
         if not records:
             return
 
         updated = 0
         for r in records:
+            if r.get('strategy_fingerprint') != self.strategy_spec.fingerprint():
+                continue
+            if r.get('model_release_id', 'legacy-unversioned') != release_id:
+                continue
             if r.get('actual_return') is not None:
                 continue
 
@@ -240,9 +302,14 @@ class TradingMemory:
 
     def reflection_stats(self):
         """Rule-based accuracy analysis by regime and direction."""
-        records = self._load_all()
+        all_records = self._load_all()
+        fingerprint = self.strategy_spec.fingerprint()
+        records = [
+            record for record in all_records
+            if record.get('strategy_fingerprint') == fingerprint
+        ]
         if not records:
-            return {'error': '无记忆记录'}
+            return {'error': '当前策略版本无记忆记录'}
 
         evaluated = [r for r in records if r.get('is_correct') is not None]
         if not evaluated:
@@ -289,24 +356,50 @@ class TradingMemory:
                         'count': len(subset),
                     }
 
-        # By fusion level (反馈闭环: 融合层级 × 准确率)
-        # 用 fused_direction 判定正确性; 缺字段的老记录回退到 direction
-        by_fusion_level = {}
+        # Shadow research context. Executed accuracy belongs to the immutable
+        # base decision; proposal accuracy evaluates the non-executed research
+        # suggestion separately so a shadow proposal is never labelled as a
+        # trade result.
+        by_shadow_context = {}
         for level in ['none', 'rule', 'rag', 'llm']:
             subset = [r for r in evaluated if r.get('fusion_level', 'none') == level]
             if subset:
-                lvl_correct = 0
-                for r in subset:
-                    fd = r.get('fused_direction', r.get('direction', 0))
-                    actual = r.get('actual_return')
-                    if fd != 0 and actual is not None:
-                        lvl_correct += int(np.sign(fd) == np.sign(actual))
-                acted = [r for r in subset
-                         if r.get('fused_direction', r.get('direction', 0)) != 0]
-                by_fusion_level[level] = {
-                    'accuracy': round(lvl_correct / len(acted), 4) if acted else None,
+                executed = [
+                    r for r in subset
+                    if r.get('fused_direction', r.get('direction', 0)) != 0
+                    and r.get('actual_return') is not None
+                ]
+                proposals = [
+                    r for r in subset
+                    if r.get('research_proposed_direction') not in (None, 0)
+                    and r.get('actual_return') is not None
+                ]
+                executed_correct = sum(
+                    int(
+                        np.sign(r.get('fused_direction', r.get('direction', 0)))
+                        == np.sign(r['actual_return'])
+                    )
+                    for r in executed
+                )
+                proposal_correct = sum(
+                    int(
+                        np.sign(r['research_proposed_direction'])
+                        == np.sign(r['actual_return'])
+                    )
+                    for r in proposals
+                )
+                by_shadow_context[level] = {
+                    'executed_accuracy': (
+                        round(executed_correct / len(executed), 4)
+                        if executed else None
+                    ),
+                    'executed_acted': len(executed),
+                    'proposal_accuracy': (
+                        round(proposal_correct / len(proposals), 4)
+                        if proposals else None
+                    ),
+                    'proposal_acted': len(proposals),
                     'count': len(subset),
-                    'acted': len(acted),
                 }
 
         # Streak analysis
@@ -331,7 +424,7 @@ class TradingMemory:
             'by_regime': by_regime,
             'by_direction': by_direction,
             'by_regime_direction': by_regime_dir,
-            'by_fusion_level': by_fusion_level,
+            'by_shadow_context': by_shadow_context,
             'recent_10_accuracy': round(recent_acc, 4),
             'current_win_streak': streak,
             'max_win_streak': max_streak,
@@ -369,17 +462,28 @@ class TradingMemory:
                 parts.append(f"{dname}:{info['accuracy']:.2%}(n={info['count']})")
             lines.append(f"  {regime}: {' | '.join(parts)}")
 
-        fl = stats.get('by_fusion_level', {})
-        if fl:
+        contexts = stats.get('by_shadow_context', {})
+        if contexts:
             lines.append("")
-            lines.append("--- 融合层级 × 准确率 (反馈闭环) ---")
-            for level, info in fl.items():
-                acc = f"{info['accuracy']:.2%}" if info['accuracy'] is not None else "N/A"
-                lines.append(f"  {level}: {acc} (n={info['count']}, 交易={info['acted']})")
+            lines.append("--- 影子研究情境：基础执行 vs 非执行建议 ---")
+            for level, info in contexts.items():
+                executed = (
+                    f"{info['executed_accuracy']:.2%}"
+                    if info['executed_accuracy'] is not None else "N/A"
+                )
+                proposal = (
+                    f"{info['proposal_accuracy']:.2%}"
+                    if info['proposal_accuracy'] is not None else "N/A"
+                )
+                lines.append(
+                    f"  {level}: 基础执行={executed}"
+                    f"(n={info['executed_acted']}) | "
+                    f"影子建议={proposal}(n={info['proposal_acted']})"
+                )
 
         return '\n'.join(lines)
 
-    def llm_reflection(self):
+    def llm_reflection(self, *, api_key=None):
         """Use DeepSeek to analyze recent memory records and identify failure patterns.
         Returns a Chinese narrative reflection text."""
         try:
@@ -421,7 +525,11 @@ class TradingMemory:
 
         try:
             analyzer = LLMAnalyzer.__new__(LLMAnalyzer)
-            analyzer.api_key = os.environ.get("DEEPSEEK_API_KEY", "")
+            analyzer.api_key = (
+                str(api_key)
+                if api_key is not None
+                else os.environ.get("DEEPSEEK_API_KEY", "")
+            )
             if not analyzer.api_key:
                 return self._format_stats_text(stats) + "\n\n[LLM 反思不可用: 未设置 DEEPSEEK_API_KEY]"
 

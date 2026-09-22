@@ -16,9 +16,9 @@ import numpy as np
 import pickle
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
-BASE_DIR = r"D:\桌面\F_Agent"
+from config import BASE_DIR
 
 
 def build_full_factors():
@@ -304,7 +304,7 @@ def sweep_windows(df_model, features):
 
 
 def save_model_and_predictions(best_result, config_label):
-    """保存最优模型和预测"""
+    """保存旧训练候选；此入口没有生产发布权限。"""
     print("\n" + "="*60)
     print("PHASE 4: 保存最优模型")
     print("="*60)
@@ -318,12 +318,15 @@ def save_model_and_predictions(best_result, config_label):
                    'oi', 'volume', 'money', 'Market_Regime', 'Should_Trade']
     available_cols = [c for c in output_cols if c in test_df.columns]
     
-    pred_file = os.path.join(BASE_DIR, "outputs/df_predictions.pkl")
+    run_id = datetime.now(timezone.utc).strftime("legacy-retrain-optimized-%Y%m%dT%H%M%SZ")
+    candidate_dir = os.path.join(BASE_DIR, "artifacts", "experiments", run_id)
+    os.makedirs(candidate_dir, exist_ok=False)
+    pred_file = os.path.join(candidate_dir, "df_predictions.pkl")
     test_df[available_cols].to_pickle(pred_file)
     print(f"  预测结果已保存: {pred_file} ({len(test_df)} 行)")
     
     # 保存模型
-    model_file = os.path.join(BASE_DIR, "models/trained_model.pkl")
+    model_file = os.path.join(candidate_dir, "trained_model.pkl")
     with open(model_file, 'wb') as f:
         pickle.dump({
             'model_base': best_result['model_base'],
@@ -340,7 +343,7 @@ def save_model_and_predictions(best_result, config_label):
         'importance': best_result['model_base'].feature_importances_
     }).sort_values('importance', ascending=False)
     
-    imp_file = os.path.join(BASE_DIR, "outputs/feature_importance.csv")
+    imp_file = os.path.join(candidate_dir, "feature_importance.csv")
     importance_df.to_csv(imp_file, index=False, encoding='utf-8-sig')
     
     print(f"\n  Top 15 特征重要性:")
@@ -360,16 +363,22 @@ def save_model_and_predictions(best_result, config_label):
             print(f"    #{rank} {row['feature']:30s} importance={row['importance']:.4f}")
     else:
         print(f"\n  [注意] 新增因子未能进入Top重要性，可能需要重新审视特征工程")
+    print("  [候选模式] 未发布；请使用 main.py --mode train 进入统一门禁。")
+    return pred_file
 
 
-def run_backtest():
+def run_backtest(prediction_path):
     """运行回测"""
     print("\n" + "="*60)
     print("PHASE 5: 策略回测")
     print("="*60)
     
     import backtest
-    success = backtest.run_process(BASE_DIR)
+    success = backtest.run_process(
+        BASE_DIR,
+        prediction_path=prediction_path,
+        strategy_id="tl_rank_sweetspot_legacy_v1",
+    )
     return success
 
 
@@ -411,10 +420,10 @@ def main():
     best_config, best_result, all_results = sweep_windows(df_model, features)
     
     # Phase 4: 保存模型
-    save_model_and_predictions(best_result, best_config)
+    candidate_predictions = save_model_and_predictions(best_result, best_config)
     
     # Phase 5: 回测
-    run_backtest()
+    run_backtest(candidate_predictions)
     
     print("\n" + "#"*60)
     print(f"#   重训练完成 — 最优配置: {best_config}")
