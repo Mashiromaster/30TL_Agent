@@ -1141,7 +1141,7 @@ def render_iteration(ctx):
 # Delegated tabs (from original dashboard — pass-through to keep existing)
 # ================================================================
 def render_market_from_v1(ctx):
-    from dashboard import render_market_tab
+    from market_dashboard import render_market_tab
     render_market_tab(ctx)
 
 

@@ -1,172 +1,210 @@
 # -*- coding: utf-8 -*-
-# update_market_data.py — 从 AKShare 拉取国债期货分钟数据并追加到原始数据
+"""Update concrete futures contracts without relabeling continuous quotes.
 
-import pandas as pd
-import numpy as np
-import os
-import time
+The legacy training pickle contains contract-level minutes. Continuous daily bars
+belong to the separate quote cache and must never be appended to that pickle.
+"""
+
+from __future__ import annotations
+
 import argparse
 from datetime import datetime
+import os
+from pathlib import Path
+import re
+import shutil
+import tempfile
+from uuid import uuid4
 
-DEFAULT_BASE_DIR = r"D:\桌面\F_Agent"
+import pandas as pd
 
-VARIETY_CONFIG = {
-    'TL': {
-        'label': 'TL (30年期)',
-        'prefix': 'TL',
-        'file_name': 'TL分钟级量价数据.pkl',
-        'main_symbol': 'TL0',
-        'contracts': ['TL2609', 'TL2606', 'TL2603', 'TL2512', 'TL2509'],
-        'oi_thresholds': [(100000, 'TL2609'), (50000, 'TL2606'), (20000, 'TL2603')],
-        'oi_fallback': 'TL2512',
-    },
-    'T': {
-        'label': 'T (10年期)',
-        'prefix': 'T',
-        'file_name': 'T分钟级量价数据.pkl',
-        'main_symbol': 'T0',
-        'contracts': ['T2609', 'T2606', 'T2603', 'T2512', 'T2509'],
-        'oi_thresholds': [(80000, 'T2609'), (40000, 'T2606'), (15000, 'T2603')],
-        'oi_fallback': 'T2512',
-    },
-    'TF': {
-        'label': 'TF (5年期)',
-        'prefix': 'TF',
-        'file_name': 'TF分钟级量价数据.pkl',
-        'main_symbol': 'TF0',
-        'contracts': ['TF2609', 'TF2606', 'TF2603', 'TF2512', 'TF2509'],
-        'oi_thresholds': [(50000, 'TF2609'), (25000, 'TF2606'), (10000, 'TF2603')],
-        'oi_fallback': 'TF2512',
-    },
-    'TS': {
-        'label': 'TS (2年期)',
-        'prefix': 'TS',
-        'file_name': 'TS分钟级量价数据.pkl',
-        'main_symbol': 'TS0',
-        'contracts': ['TS2609', 'TS2606', 'TS2603', 'TS2512', 'TS2509'],
-        'oi_thresholds': [(30000, 'TS2609'), (15000, 'TS2606'), (5000, 'TS2603')],
-        'oi_fallback': 'TS2512',
-    },
-}
+from market_data import (
+    VARIETY_CONFIG,
+    contract_candidates,
+    fetch_bars,
+    load_quote_series,
+)
 
 
-def _infer_ticker(sym, df, variety='TL'):
-    """Infer actual contract code from OI for the given variety's main-contract symbol."""
-    cfg = VARIETY_CONFIG.get(variety, VARIETY_CONFIG['TL'])
-    if sym != cfg['main_symbol']:
-        return sym
-    oi_last = float(df['hold'].iloc[-1])
-    for threshold, contract in cfg['oi_thresholds']:
-        if oi_last > threshold:
-            return contract
-    return cfg['oi_fallback']
+DEFAULT_BASE_DIR = str(Path(__file__).resolve().parents[1])
 
 
-def fetch_contracts(variety='TL'):
-    """拉取指定品种的所有合约分钟数据。"""
-    import akshare as ak
+def _contract_symbols(variety, symbols=None, as_of=None):
+    """Validate the whole requested batch before contacting any provider."""
+    if variety not in VARIETY_CONFIG:
+        raise ValueError(f"不支持的合约品种: {variety}")
+    if symbols is None:
+        symbols = contract_candidates(variety, as_of=as_of)
+    if isinstance(symbols, str):
+        symbols = [symbols]
+    normalized = []
+    for value in symbols:
+        normalized.extend(part.strip().upper() for part in value.split(",") if part.strip())
+    pattern = rf"{re.escape(VARIETY_CONFIG[variety]['prefix'])}\d{{2}}(?:03|06|09|12)"
+    if not normalized or any(re.fullmatch(pattern, symbol) is None for symbol in normalized):
+        raise ValueError(f"仅允许 {variety} 明确季度合约（如 {variety}2612），不允许主力连续或其它品种")
+    return list(dict.fromkeys(normalized))
 
-    cfg = VARIETY_CONFIG.get(variety, VARIETY_CONFIG['TL'])
-    symbols = [cfg['main_symbol']] + cfg['contracts']
-    main_sym = cfg['main_symbol']
 
+def fetch_contracts(variety="TL", symbols=None, *, fetcher=None, as_of=None):
+    """Fetch concrete contracts independently; report, never mask failures.
+
+    Rolling candidates are requests, not a claim that all are listed or that any
+    one is the current main contract. OI is never used as contract identity.
+    """
+    requested = _contract_symbols(variety, symbols, as_of=as_of)
+    fetch = fetcher or fetch_bars
     results = []
-    for sym in symbols:
+    failures = []
+    for symbol in requested:
         try:
-            df = ak.futures_zh_minute_sina(symbol=sym, period='1')
-            if df is None or len(df) == 0:
-                print(f"  {sym}: 无数据")
-                continue
-
-            ticker = _infer_ticker(sym, df, variety)
-
-            df_out = pd.DataFrame()
-            df_out['date'] = pd.to_datetime(df['datetime'])
-            df_out['trade_dt'] = df_out['date'].dt.normalize()
-            df_out['ticker'] = ticker
-            df_out['open'] = df['open'].astype(float)
-            df_out['high'] = df['high'].astype(float)
-            df_out['low'] = df['low'].astype(float)
-            df_out['close'] = df['close'].astype(float)
-            df_out['volume'] = df['volume'].astype(float)
-            df_out['money'] = df_out['close'] * df_out['volume'] * 100
-            df_out['oi'] = df['hold'].astype(float)
-            df_out['time'] = df_out['date'].dt.strftime('%H:%M')
-
-            results.append(df_out)
-            print(f"  {sym} → {ticker}: {len(df_out)} 行, "
-                  f"{df_out['date'].min()} ~ {df_out['date'].max()}, OI={df_out['oi'].iloc[-1]:.0f}")
-
-        except Exception as e:
-            print(f"  {sym}: 失败 — {e}")
-
-        time.sleep(0.5)
-
+            frame = fetch(symbol, frequency="1min")
+            if frame is None or frame.empty:
+                raise ValueError("行情源未返回数据")
+            required = {"date", "ticker", "source_symbol", "series_kind", "open", "high", "low", "close", "volume", "oi"}
+            if not required.issubset(frame.columns):
+                raise ValueError(f"行情字段不完整: {sorted(required - set(frame.columns))}")
+            if (
+                not frame["ticker"].eq(symbol).all()
+                or not frame["source_symbol"].eq(symbol).all()
+                or not frame["series_kind"].eq("contract").all()
+            ):
+                raise ValueError("合约身份与请求不一致，拒绝写入训练数据")
+            frame = frame.copy()
+            frame["date"] = pd.to_datetime(frame["date"], errors="raise")
+            if frame["date"].isna().any():
+                raise ValueError("行情日期为空")
+            frame["trade_dt"] = frame["date"].dt.normalize()
+            frame["time"] = frame["date"].dt.strftime("%H:%M")
+            # Keep the downstream schema: this is estimated, not reported turnover.
+            frame["money"] = frame["close"] * frame["volume"] * 100
+            frame["money_estimated"] = True
+            frame["money_method"] = "legacy_close_x_volume_x_100"
+            results.append(frame)
+            print(f"  {symbol}: {len(frame):,} 行, {frame['date'].min()} ~ {frame['date'].max()}")
+        except Exception as exc:
+            failures.append(symbol)
+            print(f"  [ERROR] {symbol}: 获取失败 — {exc}")
+    if failures:
+        print(f"[WARNING] {len(failures)}/{len(requested)} 个合约更新失败: {', '.join(failures)}；成功合约仍可独立更新")
     return results
 
 
-def update_raw_data(base_dir=DEFAULT_BASE_DIR, variety='TL'):
-    """主流程：拉取新数据 → 去重 → 追加 → 保存"""
-    cfg = VARIETY_CONFIG.get(variety, VARIETY_CONFIG['TL'])
-    raw_file = os.path.join(base_dir, "data", cfg['file_name'])
+def _warn_legacy_provenance(frame):
+    """Old labels are not evidence; retain old rows until separately audited."""
+    required = {"source_symbol", "series_kind"}
+    suspicious = not required.issubset(frame.columns)
+    if not suspicious:
+        suspicious = bool(
+            frame["source_symbol"].isna().any()
+            or frame["series_kind"].ne("contract").any()
+            or frame["source_symbol"].ne(frame["ticker"]).any()
+        )
+    if suspicious:
+        print("[WARNING] 历史缓存缺少可信合约来源或含可疑标签；保留原记录，不自动重标/删除。请按 docs/market_data_quality.md 审计历史数据。")
 
-    print("=" * 50)
-    print(f"  {cfg['label']} 分钟行情数据更新")
-    print("=" * 50)
 
-    # 1. 加载现有数据
-    if os.path.exists(raw_file):
-        df_existing = pd.read_pickle(raw_file)
-        print(f"\n现有数据: {len(df_existing):,} 行, "
-              f"{df_existing['date'].min()} ~ {df_existing['date'].max()}")
-        print(f"合约: {sorted(df_existing['ticker'].unique())}")
-    else:
-        print(f"\n[WARNING] 未找到 {raw_file}, 将创建新文件")
-        df_existing = pd.DataFrame()
+def _save_with_backup(frame, target):
+    """Back up existing bytes and replace only a fully serialized pickle."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        suffix = datetime.now().strftime("%Y%m%dT%H%M%S%f") + "-" + uuid4().hex[:8]
+        backup = target.with_name(target.name + ".bak." + suffix)
+        shutil.copy2(target, backup)
+        print(f"原缓存备份: {backup}")
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="wb", dir=target.parent, prefix=target.name + ".", suffix=".tmp", delete=False) as handle:
+            temporary = Path(handle.name)
+            frame.to_pickle(handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, target)
+    finally:
+        if temporary is not None and temporary.exists():
+            temporary.unlink()
 
-    # 2. 拉取新数据
-    print(f"\n拉取 {cfg['label']} 合约分钟数据...")
-    new_dfs = fetch_contracts(variety=variety)
 
-    if not new_dfs:
-        print("[ERROR] 未获取到任何数据")
+def update_raw_data(base_dir=DEFAULT_BASE_DIR, variety="TL", symbols=None, *, fetcher=None):
+    """Append verified contract minutes, without pretending to backfill history."""
+    requested = _contract_symbols(variety, symbols)
+    cfg = VARIETY_CONFIG[variety]
+    target = Path(base_dir) / "data" / cfg["file_name"]
+    print(f"{cfg['label']} 具体合约分钟行情更新（不含主力连续）")
+    try:
+        if target.exists():
+            existing = pd.read_pickle(target)
+            if not isinstance(existing, pd.DataFrame) or not {"date", "ticker"}.issubset(existing.columns):
+                raise ValueError("历史缓存缺少 date/ticker，拒绝覆盖")
+            existing = existing.copy()
+            existing["date"] = pd.to_datetime(existing["date"], errors="raise")
+            if existing["date"].isna().any() or existing["ticker"].isna().any():
+                raise ValueError("历史缓存存在空日期/合约，拒绝覆盖")
+            _warn_legacy_provenance(existing)
+            print(f"现有数据: {len(existing):,} 行, {existing['date'].min()} ~ {existing['date'].max()}")
+        else:
+            existing = pd.DataFrame()
+            print(f"[WARNING] 未找到历史缓存，将创建: {target}")
+
+        frames = fetch_contracts(variety=variety, symbols=requested, fetcher=fetcher)
+        if not frames:
+            print("[ERROR] 未获取到任何有效合约数据；原缓存保持不变")
+            return False
+        fresh = pd.concat(frames, ignore_index=True).drop_duplicates(subset=["date", "ticker"], keep="last")
+        if not existing.empty:
+            fresh_keys = pd.MultiIndex.from_frame(fresh[["date", "ticker"]])
+            old_keys = pd.MultiIndex.from_frame(existing[["date", "ticker"]])
+            # Replace only the verified contract/minute keys in this response.
+            # Do not incidentally clean or reinterpret unrelated legacy rows.
+            existing = existing.loc[~old_keys.isin(fresh_keys)]
+        combined = pd.concat([existing, fresh], ignore_index=True)
+        combined = combined.sort_values(["date", "ticker"]).reset_index(drop=True)
+        _save_with_backup(combined, target)
+    except Exception as exc:
+        print(f"[ERROR] 行情更新未完成，原缓存未替换: {exc}")
         return False
 
-    df_new = pd.concat(new_dfs, ignore_index=True)
-    print(f"\n新数据合计: {len(df_new):,} 行")
-
-    # 3. 合并并去重 (按 date + ticker)
-    df_combined = pd.concat([df_existing, df_new], ignore_index=True)
-    before = len(df_combined)
-    df_combined = df_combined.drop_duplicates(subset=['date', 'ticker'], keep='last')
-    after = len(df_combined)
-    print(f"去重: {before:,} → {after:,} (新增 {after - len(df_existing):,} 行)")
-
-    df_combined = df_combined.sort_values(['date', 'ticker']).reset_index(drop=True)
-
-    # 4. 保存
-    df_combined.to_pickle(raw_file)
-    print(f"\n已保存: {raw_file}")
-    print(f"总行数: {len(df_combined):,}")
-    print(f"日期范围: {df_combined['date'].min()} ~ {df_combined['date'].max()}")
-    print(f"合约: {sorted(df_combined['ticker'].unique())}")
-
-    # 5. 覆盖摘要
-    last = df_combined['date'].max()
-    days_to_now = (datetime.now() - pd.to_datetime(last)).days
-    print(f"最新数据距今天: {days_to_now} 天")
-    if days_to_now > 1:
-        print("[WARNING] 数据有滞后, 请定期运行此脚本更新")
-
+    print(f"已保存: {target}; 共 {len(combined):,} 行; 最新观测: {combined['date'].max()}")
+    print("[WARNING] 分钟接口仅提供有限近期窗口；最新时间不代表历史连续完整，不能据此认定中间缺口已补齐。")
     return True
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Update treasury futures minute data')
-    parser.add_argument('--variety', type=str, default='TL',
-                        choices=['TL', 'T', 'TF', 'TS'],
-                        help='Futures variety to update (default: TL)')
-    parser.add_argument('--base-dir', type=str, default=DEFAULT_BASE_DIR,
-                        help='Project root directory')
-    args = parser.parse_args()
-    update_raw_data(args.base_dir, args.variety)
+def refresh_main_daily(base_dir=DEFAULT_BASE_DIR, variety="TL"):
+    """Refresh the isolated continuous daily cache, never training raw data."""
+    symbol = VARIETY_CONFIG[variety]["main_symbol"]
+    try:
+        snapshot = load_quote_series(base_dir, symbol, "1D", refresh=True)
+        if snapshot.error:
+            print(f"[ERROR] {symbol} 日线刷新失败: {snapshot.error}；缓存不等于刷新成功")
+            return False
+        if snapshot.bars.empty:
+            print(f"[ERROR] {symbol} 日线为空")
+            return False
+        print(f"{symbol} 主力连续日线: {len(snapshot.bars):,} 行, {snapshot.bars['date'].min()} ~ {snapshot.bars['date'].max()}；保存于独立行情缓存，未修改训练原始数据")
+        return True
+    except Exception as exc:
+        print(f"[ERROR] {symbol} 日线刷新失败: {exc}")
+        return False
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Update explicit treasury-futures contracts or isolated continuous daily quotes")
+    parser.add_argument("--variety", default="TL", choices=sorted(VARIETY_CONFIG))
+    parser.add_argument("--base-dir", default=DEFAULT_BASE_DIR, help="Project root directory")
+    parser.add_argument("--symbols", nargs="+", help="Explicit quarterly contracts, separated by spaces or commas; never TL0/T0/TF0/TS0")
+    parser.add_argument("--daily-only", action="store_true", help="Refresh continuous daily quote cache only; do not touch training minutes")
+    args = parser.parse_args(argv)
+    if args.daily_only and args.symbols:
+        parser.error("--daily-only 不可与 --symbols 同时使用")
+    if args.daily_only:
+        return 0 if refresh_main_daily(args.base_dir, args.variety) else 1
+    try:
+        symbols = _contract_symbols(args.variety, args.symbols) if args.symbols else None
+        succeeded = update_raw_data(args.base_dir, args.variety, symbols=symbols)
+    except ValueError as exc:
+        parser.error(str(exc))
+    return 0 if succeeded else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -28,6 +28,7 @@ data/macro/*.pkl
 data/*.pkl
 data/*.txt
 data/rag/
+data/market_quotes/
 
 # Model outputs (generated files)
 outputs/*.pkl
