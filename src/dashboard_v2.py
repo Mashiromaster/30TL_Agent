@@ -26,6 +26,7 @@ if sys.platform == 'win32':
 
 sys.path.insert(0, os.path.dirname(__file__))
 from config import BASE_DIR
+import chart_theme
 from strategy_agent import StrategyContext
 from rag_tool import RAGAnalyzer
 from memory import TradingMemory
@@ -119,12 +120,14 @@ def load_sentiment_snapshot():
 
     db_path = os.path.join(BASE_DIR, "data", "intelligence", "events.sqlite")
     if not os.path.exists(db_path):
-        return {"source_health": [], "assessments": [], "alerts": []}
-    store = IntelligenceEventStore(BASE_DIR)
+        return {"source_health": [], "assessments": [], "alerts": [], "deliveries": []}
+    store = IntelligenceEventStore(BASE_DIR, read_only=True)
     return {
         "source_health": [asdict(item) for item in store.list_source_health()],
-        "assessments": [asdict(item) for item in store.list_assessments()[-20:]],
+        "assessments": store.recent_event_records(limit=50),
         "alerts": [asdict(item) for item in store.list_alerts()],
+        "deliveries": [{key: value for key, value in item.items() if key not in {"payload", "payload_json"}}
+                       for item in store.list_deliveries(limit=30)],
     }
 
 
@@ -149,109 +152,67 @@ def load_iterator():
 
 
 def main():
-    st.title("F_Agent — TL 30Y国债期货智能策略系统")
-    st.caption("版本化模型 · 统一TL策略 · 舆情事件监控 · 可审计Research Agent")
-
-    # Sidebar
-    with st.sidebar:
-        st.header("⚙️ 控制面板")
-
-        # ─── API Key ───
-        st.subheader("🔑 API Key")
-        entered_key = st.text_input(
-            "本会话 DeepSeek API Key（可选）",
-            value="",
-            type="password",
-            placeholder="sk-...",
-            help=(
-                "只保存在当前浏览器会话，不写入环境变量、文件或其他会话。"
-                "留空时使用服务器已配置密钥（如有）。"
-            ),
-            key="sidebar_api_key",
-        )
-        st.session_state["user_deepseek_api_key"] = entered_key.strip()
-        if not _effective_api_key():
-            st.caption(":gray[未设置 — AI情报/RAG/反思功能不可用]")
-            st.caption("可由服务器 secret/.env 配置，或仅在本会话输入。")
-        elif entered_key:
-            st.caption(":green[当前会话密钥已配置]")
-        else:
-            st.caption(":green[服务器密钥已配置；具体值不会显示]")
-
-        st.divider()
-
-        if st.button("🔄 刷新全部数据", width='stretch'):
-            st.cache_data.clear()
-            st.rerun()
-
-        if st.button("🧹 清除缓存", width='stretch'):
-            st.cache_data.clear()
-            st.cache_resource.clear()
-            st.rerun()
-
-        st.divider()
-
-        try:
-            ctx = load_ctx()
-            sd = load_signal_dash()
-            if sd.is_ready and ctx.df_factors is not None:
-                signal = sd.generate_live_signal(ctx.df_factors)
-            else:
-                signal = None
-
-            if signal and not signal.get('decision_ready', True):
-                st.warning(
-                    "策略历史不足，尚不可决策: "
-                    + signal.get('missing_reason', 'insufficient_history')
-                )
-            elif signal:
-                st.subheader("📡 实时信号")
-                d = signal.get('direction', 0)
-                d_label = {1: '🟢 LONG', -1: '🔴 SHORT', 0: '⚪ FLAT'}[d]
-                st.metric("方向", d_label)
-                st.metric("置信度", f"{signal.get('confidence', 0):.1%}")
-                rank = signal.get('pred_rank_pct')
-                st.metric("排名分位", f"{rank:.1%}" if rank is not None else "N/A")
-                st.metric("状态", signal.get('regime_name', 'N/A'))
-            else:
-                st.warning("无信号数据")
-        except Exception as e:
-            st.warning(f"数据加载: {redact_sensitive_text(e)}")
-
-        st.divider()
-        st.caption(f"更新: {datetime.now().strftime('%H:%M:%S')}")
-
-    # Tabs — 重构为2行×6 (12个Tab, 合并冗余功能)
-    tab_labels = [
-        "📡 信号看板", "📊 市场监控", "🔬 因子分析", "🔍 因子评估",
-        "💰 回测表现", "🌍 宏观环境",
-    ]
-    tab_labels2 = [
-        "🧠 AI决策融合", "📋 交易记忆", "🔄 自我进化",
-        "📊 模型评估", "⏰ 定时调度", "🧬 遗传挖掘",
-    ]
-
-    tabs1 = st.tabs(tab_labels)
-    tabs2 = st.tabs(tab_labels2)
-
+    from dashboard_workspace import render_workspace
     try:
         ctx = load_ctx()
     except Exception as e:
         st.error(f"数据加载失败: {redact_sensitive_text(e)}")
         return
+    render_workspace(ctx, {
+        "market": lambda: render_market_from_v1(ctx),
+        "signal": lambda: render_signal_v2(ctx),
+        "sentiment": render_sentiment_monitor,
+        "macro": lambda: render_macro_from_v1(ctx),
+        "hybrid": lambda: render_ai_fusion(ctx),
+        "factor_analysis": lambda: render_factor_from_v1(ctx),
+        "factor_eval": lambda: render_factor_eval(ctx),
+        "genetic": lambda: render_genetic_mining(ctx),
+        "preparation": lambda: render_data_preparation(ctx),
+        "model_eval": lambda: render_eval_tab(ctx),
+        "evolution": lambda: render_evolution_combined(ctx),
+        "backtest": lambda: render_backtest_from_v1(ctx),
+        "memory": lambda: render_memory_v2(ctx),
+        "api": render_connection_settings,
+        "scheduler": lambda: render_cron_tab(ctx),
+    })
+    # Legacy view imports set their own title; keep this entrypoint consistent.
+    st.set_page_config(page_title="F_Agent 研究工作台", page_icon="📈", layout="wide")
 
-    with tabs1[0]: render_signal_v2(ctx)
-    with tabs1[1]: render_market_from_v1(ctx)
-    with tabs1[2]: render_factor_from_v1(ctx)
-    with tabs1[3]: render_factor_eval(ctx)
-    with tabs1[4]: render_backtest_from_v1(ctx)
-    with tabs1[5]: render_macro_from_v1(ctx)
-    with tabs2[0]: render_ai_fusion(ctx)          # 新: AI融合决策 (合并AI情报+RAG)
-    with tabs2[1]: render_memory_v2(ctx)
-    with tabs2[2]: render_evolution_combined(ctx)   # 新: 自我进化 (合并迭代+微调)
-    with tabs2[3]: render_eval_tab(ctx)
-    with tabs2[4]: render_cron_tab(ctx)
-    with tabs2[5]: render_genetic_mining(ctx)
+
+def render_connection_settings():
+    """Keep session secrets out of the global navigation and preserve across pages."""
+    st.subheader("模型连接")
+    def save_session_key():
+        st.session_state["user_deepseek_api_key"] = st.session_state.get("sidebar_api_key", "").strip()
+    st.text_input("本会话 DeepSeek API Key（可选）", type="password",
+        value=st.session_state.get("user_deepseek_api_key", ""), placeholder="sk-...",
+        help="仅当前浏览器会话，不写入环境变量或文件；留空使用服务器配置。",
+        key="sidebar_api_key", on_change=save_session_key)
+    if st.session_state.get("user_deepseek_api_key"):
+        st.caption("当前会话密钥已配置；切换页面不会清除。")
+    elif _SERVER_DEEPSEEK_API_KEY:
+        st.caption("服务器密钥已配置；具体值不会显示。")
+    else:
+        st.info("尚未配置模型连接。离线研究和数据检查仍可使用。")
+    st.caption("配置密钥不会发起模型调用；在线研究仍需在运行页面单独确认。")
+    st.divider()
+    st.subheader("本地缓存维护")
+    st.caption("以下操作只清理进程内缓存，不下载最新行情，不删除原始数据，不启动模型训练。")
+    left, right = st.columns(2)
+    with left:
+        if st.button("重新读取本地数据", key="workspace_reload_local", width="stretch"):
+            st.cache_data.clear()
+            st.rerun()
+    with right:
+        if st.button("清除数据与模型内存缓存", key="workspace_clear_memory", width="stretch"):
+            st.cache_data.clear()
+            st.cache_resource.clear()
+            st.rerun()
+
+
+def render_data_preparation(ctx):
+    from hybrid_dashboard import render_preparation_workbench
+    render_preparation_workbench(ctx, api_key=_effective_api_key())
 
 
 # ================================================================
@@ -465,7 +426,7 @@ def render_rag_v2(ctx):
 # ================================================================
 # Tab: AI 融合决策 (合并 AI情报 + RAG — signal_fusion 交叉决策)
 # ================================================================
-def render_ai_fusion(ctx):
+def render_sentiment_monitor():
     st.subheader("🧠 Research Agent / 舆情监控")
 
     st.markdown("""
@@ -474,15 +435,37 @@ def render_ai_fusion(ctx):
     """)
 
     with st.expander("📡 舆情监控 Agent", expanded=True):
+        from bond_monitor_config import MonitorConfig
+        from dataclasses import asdict
+        try:
+            monitor_config = MonitorConfig.load(BASE_DIR)
+        except Exception as exc:
+            monitor_config = None
+            st.error(f"监控配置无效：{redact_sensitive_text(exc)}")
+        with st.expander("配置订阅主题 / 发行人 / 数据源"):
+            st.caption("entities 为发行人名称或债券代码；keywords 与 entities 分别匹配任一词，组间为 AND。飞书密钥只从服务器环境变量读取。")
+            config_text = st.text_area("监控配置 JSON", value=json.dumps(
+                asdict(monitor_config or MonitorConfig()), ensure_ascii=False, indent=2), height=300,
+                key="bond_monitor_config_editor")
+            if st.button("校验并保存监控配置", key="save_bond_monitor_config"):
+                try:
+                    monitor_config = MonitorConfig.from_dict(json.loads(config_text))
+                    monitor_config.save(BASE_DIR)
+                    st.success("已保存，下次抓取生效；已运行的命令行监控需重启。")
+                except Exception as exc:
+                    st.error(f"未保存：{redact_sensitive_text(exc)}")
+        st.caption("仅覆盖已配置公开数据源，并非全网/社交平台全量监控；页面打开不会自动启动轮询。")
+        allow_notify = st.checkbox("本次允许发送已配置的飞书通知", value=False, key="bond_allow_notifications")
         mc1, mc2 = st.columns([1, 3])
         with mc1:
-            if st.button("立即抓取一次", width='stretch', key="sentiment_run"):
+            if st.button("立即抓取一次", width='stretch', key="sentiment_run", disabled=monitor_config is None):
                 with st.spinner("抓取、去重和事件分析中..."):
                     try:
                         from jev_client import JevClient
                         from sentiment_monitor import SentimentMonitor
                         run = SentimentMonitor(
-                            BASE_DIR, jev_adapter=JevClient(BASE_DIR)
+                            BASE_DIR, jev_adapter=JevClient(BASE_DIR), config=monitor_config,
+                            allow_notifications=allow_notify,
                         ).run_once()
                         load_sentiment_snapshot.clear()
                         message = (
@@ -495,6 +478,10 @@ def render_ai_fusion(ctx):
                             st.warning(message)
                         else:
                             st.success(message)
+                        from pathlib import Path
+                        digest_path = Path(run.report_path).with_suffix(".md")
+                        if digest_path.exists():
+                            st.session_state["bond_monitor_digest"] = digest_path.read_text(encoding="utf-8")
                     except Exception as e:
                         st.error(
                             f"舆情监控失败: {redact_sensitive_text(e)}"
@@ -537,242 +524,42 @@ def render_ai_fusion(ctx):
             else:
                 st.caption("暂无事件评估")
 
-    canonical_signal = None
-    try:
-        signal_dash = load_signal_dash()
-        if signal_dash.is_ready and ctx.df_factors is not None:
-            canonical_signal = signal_dash.generate_live_signal(ctx.df_factors)
-            if canonical_signal:
-                canonical_signal = {
-                    key: value for key, value in canonical_signal.items()
-                    if key != 'df_full'
-                }
-                if not canonical_signal.get('decision_ready', True):
-                    canonical_signal = None
-    except Exception as exc:
-        st.warning(
-            f"统一基础信号不可用: {redact_sensitive_text(exc)}"
-        )
-
-    # ── 完整 Research 闭环 (research_agent.run_cycle) ──
-    with st.expander("▶ 运行完整 Research 闭环 (因子→信号→融合→记忆→回填)", expanded=False):
-        st.caption("一键串起自动化链路，并把融合结果回流交易记忆，形成反馈闭环。")
-        cc1, cc2, cc3 = st.columns(3)
-        with cc1:
-            loop_rebuild = st.checkbox("重建因子 (较慢)", value=False, key="loop_rebuild",
-                                       help="勾选则重跑因子构建；否则用现有 df_factors.pkl")
-        with cc2:
-            loop_llm = st.checkbox("启用 LLM 推理", value=True, key="loop_llm")
-        with cc3:
-            loop_monitor = st.checkbox("同步监控舆情", value=True, key="loop_monitor")
-        if st.button("▶ 运行完整闭环", width='stretch', key="loop_run"):
-            with st.spinner("Research 闭环运行中..."):
-                try:
-                    from research_agent import run_research
-                    report = run_research(
-                        BASE_DIR,
-                        rebuild_factors=loop_rebuild,
-                        use_llm=loop_llm,
-                        monitor_sentiment=loop_monitor,
-                        api_key=_effective_api_key(),
-                    )
-                    st.session_state['research_report'] = report
-                except Exception as e:
-                    st.error(f"闭环失败: {redact_sensitive_text(e)}")
-                    import traceback
-                    st.code(redact_sensitive_text(traceback.format_exc()))
-
-        report = st.session_state.get('research_report')
-        if report:
-            st.markdown("**各步状态:**")
-            for step, status in report.get('step_status', {}).items():
-                icon = "✅" if status.startswith('ok') else ("⏭️" if status.startswith('skipped') else "❌")
-                st.write(f"{icon} `{step}` — {status}")
-            if report.get('research_proposal_changed'):
-                st.info("研究层给出了不同建议，基础交易信号未改变。")
-
-            # 影子研究情境：基础执行结果和未执行建议必须分开统计。
-            try:
-                from memory import TradingMemory
-                contexts = TradingMemory(BASE_DIR).reflection_stats().get(
-                    'by_shadow_context', {}
-                )
-                if contexts:
-                    st.markdown("**影子研究情境：基础执行 vs 非执行建议（历史反馈）:**")
-                    st.dataframe({
-                        '研究情境': list(contexts.keys()),
-                        '基础执行准确率': [
-                            f"{v['executed_accuracy']:.1%}"
-                            if v['executed_accuracy'] is not None else "N/A"
-                            for v in contexts.values()
-                        ],
-                        '影子建议准确率': [
-                            f"{v['proposal_accuracy']:.1%}"
-                            if v['proposal_accuracy'] is not None else "N/A"
-                            for v in contexts.values()
-                        ],
-                        '执行样本': [v['executed_acted'] for v in contexts.values()],
-                        '建议样本': [v['proposal_acted'] for v in contexts.values()],
-                    }, width='stretch')
-            except Exception:
-                pass
-
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        use_llm = st.checkbox("启用 LLM 推理", value=True, key="fusion_use_llm",
-                             help="调用 DeepSeek 做最终综合判断 (需 API Key)")
-    with col2:
-        if st.button(
-            "🚀 运行融合决策",
-            width='stretch',
-            type="primary",
-            key="fusion_run",
-            disabled=canonical_signal is None,
-        ):
-            with st.spinner("融合决策中... (规则→RAG→LLM)"):
-                try:
-                    from signal_fusion import run_fusion
-                    fused = run_fusion(
-                        base_dir=BASE_DIR,
-                        base_signal=canonical_signal,
-                        use_llm=use_llm,
-                        api_key=_effective_api_key(),
-                    )
-                    st.session_state['fused_signal'] = fused
-                except Exception as e:
-                    st.error(f"融合失败: {redact_sensitive_text(e)}")
-                    import traceback
-                    st.code(redact_sensitive_text(traceback.format_exc()))
-    with col3:
-        signal = canonical_signal
-        if signal:
-            dir_name = {1: '做多', -1: '做空', 0: '观望'}.get(signal.get('direction', 0), '?')
-            st.metric("模型原始信号", f"{dir_name} (置信度:{signal.get('confidence', 0):.0%})")
-
-    # Show fusion result
-    if 'fused_signal' in st.session_state:
-        fused = st.session_state['fused_signal']
-        if fused is None:
-            st.warning("无可用信号数据")
-            return
-
-        st.divider()
-        st.markdown("### ⚡ 融合结果")
-
-        dir_map = {1: '做多 LONG', -1: '做空 SHORT', 0: '观望 FLAT'}
-        old_dir = dir_map.get(fused.raw_direction, '?')
-        new_dir = dir_map.get(fused.adjusted_direction, '?')
-        proposed_dir = dir_map.get(fused.proposed_direction, '?')
-
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            st.metric("原始方向", old_dir)
-        with c2:
-            st.metric("基础方向（未改）", new_dir)
-        with c3:
-            st.metric("研究层建议", proposed_dir,
-                      delta=f"权重 {fused.proposed_weight:.1%}", delta_color="off")
-        with c4:
-            st.metric("决策层级", fused.fusion_level.upper())
-
-        if fused.shadow_only:
-            st.info("影子模式：研究建议仅记录和展示，不改变策略方向或仓位。")
-
-        # Adjustment reasons
-        if fused.reasons:
-            st.divider()
-            st.markdown("### 📋 调整理由")
-            for r in fused.reasons:
-                if '风险' in r or '矛盾' in r or '预警' in r:
-                    st.warning(r)
-                elif '确认' in r or '一致' in r:
-                    st.success(r)
+        task_choices = [task.id for task in (monitor_config.tasks if monitor_config else [])]
+        selected_task = st.selectbox("按订阅筛选证据", ["全部"] + task_choices, key="bond_evidence_task")
+        st.caption("confidence 是规则评分，不是预测正确率。官方原文只说明出处，不代表市场影响已经验证。")
+        for item in assessments:
+            raw = item.get("raw_response", {})
+            if selected_task != "全部" and not next(task for task in monitor_config.tasks
+                if task.id == selected_task).matches(item['title'] + "\n" + item['content']):
+                continue
+            with st.expander(f"{item.get('title', '未命名')} · {raw.get('fact_status', 'unknown')} · {item['severity']}"):
+                st.write({"来源": item['source_name'], "出处核验": raw.get('verification', 'unknown'),
+                          "发布时间": item['published_at'], "首次可用时间": item['available_at'],
+                          "事件编号": item['event_cluster_id'], "期限": item['tenors'],
+                          "实体": raw.get('entities', []), "修订自": item['document_metadata'].get('revision_of')})
+                from urllib.parse import urlsplit
+                if urlsplit(item['url']).scheme in {'http', 'https'}:
+                    st.link_button("查看原始出处", item['url'])
+                if item['prompt_injection_flag']:
+                    st.warning("内容已隔离，不发送外部通知，不作为模型输入。")
                 else:
-                    st.info(r)
+                    for quote in item['evidence']:
+                        st.text(quote)
+                    if raw.get('facts'):
+                        st.dataframe(pd.DataFrame(raw['facts']), hide_index=True)
+                    semantic = raw.get('semantic', {})
+                    if semantic.get('status') == 'validated':
+                        st.text("模型解读（未独立核实）：" + semantic['summary'])
+        if snapshot.get('deliveries'):
+            with st.expander("通知投递记录（local 不等于已外发）"):
+                st.dataframe(pd.DataFrame(snapshot['deliveries']), hide_index=True, width='stretch')
+        if st.session_state.get("bond_monitor_digest"):
+            st.download_button("下载本次证据简报", st.session_state['bond_monitor_digest'],
+                               file_name="bond_monitor_digest.md", mime="text/markdown")
 
-        if fused.risk_flags:
-            for r in fused.risk_flags:
-                st.error(f"⚠ {r}")
-
-        if fused.supporting_evidence:
-            st.divider()
-            st.markdown("### ✅ 支持证据")
-            for s in fused.supporting_evidence:
-                st.markdown(f"- {s}")
-
-        if fused.rag_policy_signals or fused.rag_contradictions:
-            st.divider()
-            st.markdown("### 📚 RAG 政策面分析")
-            if fused.rag_policy_signals:
-                for s in fused.rag_policy_signals:
-                    st.markdown(f"- 📄 {s}")
-            if fused.rag_contradictions:
-                st.markdown("**⚠ 矛盾信号:**")
-                for s in fused.rag_contradictions:
-                    st.markdown(f"- ❌ {s}")
-
-        if fused.llm_judgment:
-            st.divider()
-            st.markdown("### 🤖 AI 综合推理")
-            st.info(fused.llm_judgment)
-
-        # Fusion history
-        st.divider()
-        st.markdown("### 📜 融合历史 (最近10次)")
-        try:
-            from signal_fusion import SignalFusionEngine
-            engine = SignalFusionEngine(BASE_DIR)
-            history = engine.get_history(10)
-            if history:
-                rows = []
-                for h in reversed(history):
-                    od = dir_map.get(h.get('raw_direction', 0), '?')
-                    nd = dir_map.get(h.get('adjusted_direction', 0), '?')
-                    rows.append({
-                        '时间': h.get('timestamp', '')[:19],
-                        '原始': od,
-                        '基础': nd,
-                        '研究建议': dir_map.get(h.get('proposed_direction', 0), '?'),
-                        '建议权重': f"{h.get('proposed_weight', 0):.0%}",
-                        '层级': h.get('fusion_level', 'none'),
-                        '修正': f"{h.get('confidence_modifier', 0):+.2f}",
-                    })
-                st.dataframe(pd.DataFrame(rows), hide_index=True, width='stretch')
-        except Exception:
-            pass
-
-    # Quick RAG query (retained from old tab)
-    st.divider()
-    st.markdown("### 📚 快速 RAG 检索 (手动查询)")
-
-    col_q1, col_q2 = st.columns([3, 1])
-    with col_q1:
-        query = st.text_input("🔍 研究问题",
-                             placeholder="例: 最新央行政策对30Y国债的影响?",
-                             key="fusion_rag_query")
-    with col_q2:
-        if st.button("🔎 检索", width='stretch', key="fusion_rag_btn") and query:
-            try:
-                from rag_tool import RAGAnalyzer
-                rag = RAGAnalyzer(
-                    BASE_DIR, api_key=_effective_api_key()
-                )
-                result = rag.query(query, top_k=5)
-                st.divider()
-                st.markdown("#### 📝 RAG 回答")
-                st.markdown(result.get('answer', '无法生成回答'))
-                sources = result.get('sources', [])
-                if sources:
-                    with st.expander("引用来源"):
-                        for s in sources:
-                            st.caption(f"📄 {s.get('title', s.get('source', '?'))[:80]}")
-            except Exception as e:
-                st.error(f"RAG 暂不可用: {redact_sensitive_text(e)}")
-
-
-# ================================================================
-# Tab: 自我进化 (合并迭代诊断 + LoRA微调)
-# ================================================================
+def render_ai_fusion(ctx):
+    from hybrid_dashboard import render_hybrid_workbench
+    render_hybrid_workbench(ctx, api_key=_effective_api_key(), include_preparation=False)
 def render_evolution_combined(ctx):
     st.subheader("🔄 自我进化引擎 (诊断+微调+适配)")
 
@@ -913,6 +700,66 @@ def render_evolution_combined(ctx):
 # ================================================================
 # Tab 7: 交易记忆 V2 — 完整复盘+可视化
 # ================================================================
+_MIN_ACCURACY_SAMPLES = 10
+
+
+def _accuracy_trend(mem, window=20):
+    """Rolling hit rate over evaluated records, or None when too few."""
+    records = [
+        r for r in mem.get_recent(10_000)
+        if r.get('is_correct') is not None and r.get('trade_dt')
+    ]
+    if len(records) < window:
+        return None
+    frame = pd.DataFrame({
+        'trade_dt': pd.to_datetime([r['trade_dt'] for r in records], errors='coerce'),
+        'hit': [1.0 if r['is_correct'] else 0.0 for r in records],
+    }).dropna(subset=['trade_dt']).sort_values('trade_dt')
+    if len(frame) < window:
+        return None
+    frame['rolling'] = frame['hit'].rolling(window).mean() * 100
+    return frame.dropna(subset=['rolling'])
+
+
+def _render_accuracy_breakdown(buckets):
+    """One measure, one hue. Sample size rides each bar so a thin
+    category cannot read as a result."""
+    if not buckets:
+        st.caption("暂无分组记录。")
+        return
+    names = list(buckets)
+    accs = [buckets[n]['accuracy'] * 100 for n in names]
+    counts = [buckets[n]['count'] for n in names]
+    thin = [n for n, c in zip(names, counts) if c < _MIN_ACCURACY_SAMPLES]
+    width = chart_theme.bar_width(len(names))
+    fig = go.Figure(go.Bar(
+        x=names, y=accs,
+        marker_color=chart_theme.SERIES,
+        marker_line=dict(color=chart_theme.SURFACE, width=2),
+        marker_cornerradius=4,
+        width=[width] * len(names),
+        text=[f"{a:.1f}%<br>n={c}" for a, c in zip(accs, counts)],
+        textposition='outside',
+        textfont=dict(color=chart_theme.INK, size=12),
+        cliponaxis=False,
+        customdata=counts,
+        hovertemplate='%{x}<br>准确率 %{y:.1f}%<br>样本 %{customdata} 笔<extra></extra>',
+    ))
+    # The rule sits behind the bars, so an inline label would collide; the
+    # caption below carries its meaning instead.
+    chart_theme.reference_line(fig, 50)
+    chart_theme.apply_theme(fig, height=230, y_title='准确率 %')
+    fig.update_yaxes(range=[0, 118], ticksuffix='%')
+    st.plotly_chart(fig, width='stretch')
+    notes = ["横线为 50% 随机水平。"]
+    if thin:
+        notes.append(
+            "样本不足 %d 笔，不能据此判断分组优劣：%s。"
+            % (_MIN_ACCURACY_SAMPLES, "、".join(thin))
+        )
+    st.caption(" ".join(notes))
+
+
 def render_memory_v2(ctx):
     st.subheader("🧠 交易记忆系统")
 
@@ -959,41 +806,41 @@ def render_memory_v2(ctx):
     with col_s5:
         st.metric("连胜", f"{stats['current_win_streak']} (max:{stats['max_win_streak']})")
 
-    # Accuracy charts
+    # Accuracy over time — the change-over-time question comes first
+    st.divider()
+    st.markdown("**滚动准确率走势（20 笔窗口）**")
+    trend = _accuracy_trend(mem)
+    if trend is None:
+        st.caption("已评估记录不足 20 笔，滚动准确率尚不可读。")
+    else:
+        fig = go.Figure(go.Scatter(
+            x=trend['trade_dt'], y=trend['rolling'], mode='lines',
+            line=dict(color=chart_theme.SERIES, width=2, shape='spline',
+                      smoothing=0.4),
+            hovertemplate='%{x|%Y-%m-%d}<br>滚动准确率 %{y:.1f}%<extra></extra>',
+        ))
+        last = trend.iloc[-1]
+        fig.add_trace(go.Scatter(
+            x=[last['trade_dt']], y=[last['rolling']], mode='markers+text',
+            marker=dict(color=chart_theme.SERIES, size=9,
+                        line=dict(color=chart_theme.SURFACE, width=2)),
+            text=[f"{last['rolling']:.1f}%"], textposition='middle right',
+            textfont=dict(color=chart_theme.INK), hoverinfo='skip',
+        ))
+        chart_theme.reference_line(fig, 50, '随机水平 50%')
+        chart_theme.apply_theme(fig, height=280, y_title='准确率 %')
+        fig.update_yaxes(range=[0, 100], ticksuffix='%')
+        st.plotly_chart(fig, width='stretch')
+
+    # Breakdowns — identity, not magnitude: one measure, one hue
     st.divider()
     col_c1, col_c2 = st.columns(2)
-
     with col_c1:
-        st.markdown("**按市场状态准确率**")
-        by_regime = stats.get('by_regime', {})
-        if by_regime:
-            regimes = list(by_regime.keys())
-            accs = [by_regime[r]['accuracy'] * 100 for r in regimes]
-            counts = [by_regime[r]['count'] for r in regimes]
-            fig = go.Figure(data=[
-                go.Bar(name='准确率%', x=regimes, y=accs,
-                       text=[f'{a:.1f}%' for a in accs], textposition='auto',
-                       marker_color=['#4CAF50', '#FF9800', '#9C27B0']),
-            ])
-            fig.update_layout(height=300, margin=dict(l=10, r=10, t=10, b=10))
-            fig.add_hline(y=50, line_dash="dot", line_color="gray", opacity=0.5)
-            st.plotly_chart(fig, width='stretch')
-
+        st.markdown("**按市场状态**")
+        _render_accuracy_breakdown(stats.get('by_regime', {}))
     with col_c2:
-        st.markdown("**按交易方向准确率**")
-        by_dir = stats.get('by_direction', {})
-        if by_dir:
-            dirs = list(by_dir.keys())
-            daccs = [by_dir[d]['accuracy'] * 100 for d in dirs]
-            dcounts = [by_dir[d]['count'] for d in dirs]
-            fig = go.Figure(data=[
-                go.Bar(name='准确率%', x=dirs, y=daccs,
-                       text=[f'{a:.1f}%' for a in daccs], textposition='auto',
-                       marker_color=['#00E676', '#FF5252']),
-            ])
-            fig.update_layout(height=300, margin=dict(l=10, r=10, t=10, b=10))
-            fig.add_hline(y=50, line_dash="dot", line_color="gray", opacity=0.5)
-            st.plotly_chart(fig, width='stretch')
+        st.markdown("**按交易方向**")
+        _render_accuracy_breakdown(stats.get('by_direction', {}))
 
     # Cross table
     st.divider()
@@ -1550,172 +1397,8 @@ def _build_fallback_status(base_dir):
 # Tab: 遗传因子挖掘 (Genetic Programming Factor Mining)
 # ================================================================
 def render_genetic_mining(ctx):
-    st.subheader("🧬 遗传规划因子挖掘")
-
-    st.markdown("""
-    **遗传规划 (Genetic Programming) + 符号回归 (Symbolic Regression)** 自动发现新的量化因子。
-
-    原理：
-    - 种群初始化：随机生成数学表达式（因子公式）
-    - 适应度评估：用 **斯皮尔曼 Rank IC** 衡量预测收益的能力
-    - 自然选择：锦标赛选择保留高 IC 表达式
-    - 变异进化：交叉、变异生成新表达式
-    - 后处理：去重 (相关系数 >0.92 的去掉)、IC 筛选 (|IC|>门槛)
-    """)
-
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        pop_size = st.slider("种群大小", 500, 3000, 1500, 250, key="gp_pop")
-    with col2:
-        gen_num = st.slider("进化代数", 5, 50, 15, 5, key="gp_gen")
-    with col3:
-        min_ic = st.slider("最低|IC|门槛", 0.005, 0.05, 0.01, 0.005, key="gp_minic")
-    with col4:
-        max_factors = st.slider("最多保留因子", 5, 50, 20, 5, key="gp_maxf")
-
-    if st.button("🚀 启动遗传因子挖掘", width='stretch', type="primary", key="gp_run"):
-        if ctx.df_factors is None:
-            st.error("请确保有因子数据。先运行因子构建流程。")
-            return
-
-        with st.spinner(f"遗传规划挖掘中 (种群={pop_size}, 代数={gen_num})... 这可能需要 5-15 分钟"):
-            try:
-                from genetic_factor_miner import mine_genetic_factors
-
-                df_new, report = mine_genetic_factors(
-                    ctx.df_factors, target_col='Target_Ret',
-                    population_size=pop_size, generations=gen_num,
-                    max_new_factors=max_factors, min_ic_threshold=min_ic,
-                )
-
-                st.session_state['gp_report'] = report
-                st.session_state['gp_df_new'] = df_new
-
-            except Exception as e:
-                st.error(f"挖掘失败: {redact_sensitive_text(e)}")
-                import traceback
-                st.code(redact_sensitive_text(traceback.format_exc()))
-                return
-
-        report = st.session_state.get('gp_report', {})
-        if 'error' in report:
-            st.error(f"挖掘失败: {report['error']} (样本量={report.get('n_samples', 'N/A')})")
-            return
-
-        n_final = report.get('n_final', 0)
-        if n_final == 0:
-            st.warning("未发现通过 |IC| 门槛的新因子。尝试降低最低 IC 门槛或增加种群代数。")
-            return
-
-        st.success(f"发现 {n_final} 个新因子！")
-
-        # IC 排名表
-        rankings = report.get('rankings', [])
-        if rankings:
-            st.divider()
-            st.markdown("### 📊 因子排名 (按 |IC| 降序)")
-
-            rank_data = []
-            for name, ic, abs_ic in rankings[:30]:
-                rank_data.append({
-                    '因子名': name,
-                    'IC': f"{ic:+.4f}",
-                    '|IC|': f"{abs_ic:.4f}",
-                    '状态': '✅ 保留' if abs_ic >= min_ic else '⏳ 未达门槛',
-                })
-
-            df_rank = pd.DataFrame(rank_data)
-
-            def color_ic(val):
-                if isinstance(val, str) and val.startswith('+'):
-                    return 'color: #00E676'
-                elif isinstance(val, str) and val.startswith('-'):
-                    return 'color: #FF5252'
-                return ''
-
-            st.dataframe(df_rank.style.applymap(color_ic, subset=['IC']),
-                         hide_index=True, width='stretch')
-
-            # IC distribution chart
-            st.divider()
-            st.markdown("### 📈 IC 分布")
-
-            ic_vals = [ab for _, _, ab in rankings[:n_final]]
-            fig = go.Figure()
-            fig.add_trace(go.Bar(
-                x=list(range(len(ic_vals))),
-                y=ic_vals,
-                marker_color=['#00E676' if v >= 0.02 else '#FFA726' if v >= 0.01 else '#BDBDBD'
-                             for v in ic_vals],
-                text=[f'{v:.4f}' for v in ic_vals],
-                textposition='outside',
-            ))
-            fig.add_hline(y=min_ic, line_dash="dot", line_color="gray",
-                         annotation_text=f"最低门槛 ({min_ic})")
-            fig.update_layout(
-                title='发现因子的 |IC| 分布',
-                xaxis_title='因子排名',
-                yaxis_title='|IC|',
-                height=350,
-                margin=dict(l=10, r=10, t=40, b=10),
-            )
-            st.plotly_chart(fig, width='stretch')
-
-        # Discovered programs
-        programs = report.get('programs', [])
-        if programs:
-            st.divider()
-            st.markdown("### 🔬 因子表达式 (符号回归结果)")
-
-            prog_data = []
-            for p in programs[:15]:
-                prog_data.append({
-                    '序号': p['index'],
-                    '表达式': p['program'][:120],
-                    '表达式长度': p['length'],
-                })
-            st.dataframe(pd.DataFrame(prog_data), hide_index=True, width='stretch')
-
-            st.caption("💡 表达式越短通常泛化能力越强（奥卡姆剃刀）。优先使用短表达式作为因子。")
-
-        # Save button
-        st.divider()
-        col_s1, col_s2 = st.columns(2)
-        with col_s1:
-            if st.button("💾 保存因子DataFrame", width='stretch', key="gp_save_df"):
-                df_new = st.session_state.get('gp_df_new')
-                if df_new is not None:
-                    save_path = os.path.join(BASE_DIR, "outputs", "genetic_factors_result.pkl")
-                    df_new.to_pickle(save_path)
-                    st.success(f"已保存到: {save_path}")
-                    st.caption("下次因子构建时，遗传因子会自动参与模型训练。")
-
-        with col_s2:
-            if st.button("📄 导出因子报告 (JSON)", width='stretch', key="gp_save_report"):
-                save_path = os.path.join(BASE_DIR, "outputs", "genetic_factors",
-                                        f"genetic_report_{datetime.now().strftime('%Y%m%d_%H%M')}.json")
-                os.makedirs(os.path.dirname(save_path), exist_ok=True)
-                with open(save_path, 'w', encoding='utf-8') as f:
-                    json.dump(report, f, indent=2, ensure_ascii=False, default=str)
-                st.success(f"已保存到: {save_path}")
-
-    # Show cached results if available
-    elif 'gp_report' in st.session_state:
-        report = st.session_state['gp_report']
-        n_final = report.get('n_final', 0)
-        st.info(f"上次挖掘结果：发现 {n_final} 个新因子 "
-                f"(时间: {report.get('timestamp', 'N/A')[:19]})")
-
-    # Status check: any existing genetic factors in ctx?
-    if ctx.df_factors is not None:
-        gp_cols = [c for c in ctx.df_factors.columns if c.startswith('GP_')]
-        if gp_cols:
-            st.divider()
-            st.markdown(f"**当前数据中的遗传因子**: {len(gp_cols)} 个")
-            st.text(', '.join(gp_cols[:10]))
-            if len(gp_cols) > 10:
-                st.caption(f"... 还有 {len(gp_cols) - 10} 个")
-
+    from genetic_dashboard import render_genetic_mining as render_research_mining
+    render_research_mining(ctx)
 
 # ================================================================
 # Tab: 自我进化 (LoRA-inspired Self-Evolution)

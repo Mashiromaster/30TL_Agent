@@ -19,6 +19,8 @@ if sys.platform == 'win32':
     sys.stderr = io.TextIOWrapper(io.BytesIO(), encoding='utf-8', write_through=True)
 
 sys.path.insert(0, os.path.dirname(__file__))
+import chart_theme
+import factor_formulas
 from strategy_agent import StrategyContext
 from llm_intelligence import LLMAnalyzer
 from rag_tool import RAGAnalyzer
@@ -353,6 +355,63 @@ def _find_continuous_blocks(df, mask):
     return blocks
 
 
+def _remember_factor_click(event):
+    """Record the clicked factor name from a plotly selection event."""
+    points = (getattr(event, "selection", None) or {}).get("points") or []
+    for point in points:
+        name = point.get("y") or point.get("x")
+        if name:
+            st.session_state["selected_factor"] = str(name)
+            return
+
+
+def _render_factor_formula(name, df):
+    """Show the transcribed formula and its source, or say it is unregistered."""
+    entry = factor_formulas.lookup(name)
+    st.markdown(f"#### {name}")
+    if entry is None:
+        st.info("该因子尚未登记计算公式。公式需从计算代码转录，不能凭名称推测。")
+        return
+    if entry.status == factor_formulas.RETIRED:
+        st.error(
+            "当前代码已不再计算该因子（%s）。图中数值来自删除前生成的因子文件，"
+            "重新构建不会再产生它%s。下方公式描述的是该列当初的算法。"
+            % (entry.source,
+               "；替代因子为 " + entry.replacement if entry.replacement else "")
+        )
+    st.caption(f"{entry.label} ｜ {entry.category}")
+    st.code(entry.formula, language="python")
+    left, right = st.columns(2)
+    with left:
+        st.markdown("**输入**")
+        st.text("\n".join(entry.inputs))
+        st.markdown("**窗口**")
+        st.text(entry.window)
+    with right:
+        st.markdown("**标准化处理**")
+        st.text(entry.normalization)
+        st.markdown("**计算位置**")
+        st.text(entry.source)
+    if entry.notes:
+        st.markdown("**注意**")
+        for note in entry.notes:
+            st.markdown("- " + note)
+    if name in df.columns:
+        series = pd.to_numeric(df[name], errors='coerce').dropna()
+        if not series.empty:
+            zero_share = float((series == 0).mean())
+            st.caption(
+                "当前列：%d 个有效值，最新 %.6g，均值 %.6g，零值占比 %.1f%%。"
+                % (len(series), series.iloc[-1], series.mean(), zero_share * 100)
+            )
+    elif entry.status == factor_formulas.LIVE:
+        st.warning(
+            "当前因子文件里没有这一列。该因子由现有代码计算，说明 df_factors.pkl "
+            "生成于改名之前；重新构建因子后才会出现。"
+        )
+    st.caption(factor_formulas.PIPELINE_NOTE)
+
+
 # ================================================================
 # Tab 3: 因子分析
 # ================================================================
@@ -370,19 +429,26 @@ def render_factor_tab(ctx):
 
     with col1:
         st.markdown("**特征重要性 (Top 15)**")
+        st.caption("点击柱子查看该因子的计算公式。")
         top15 = imp[imp['importance'] > 0].head(15)
-        fig = px.bar(
-            top15.iloc[::-1], x='importance', y='feature',
+        fig = go.Figure(go.Bar(
+            x=top15['importance'].iloc[::-1], y=top15['feature'].iloc[::-1],
             orientation='h',
-            color='importance',
-            color_continuous_scale='Blues',
-        )
-        fig.update_layout(
-            height=450, margin=dict(l=10, r=10, t=10, b=10),
-            yaxis={'categoryorder': 'total ascending'},
-            coloraxis_showscale=False,
-        )
-        st.plotly_chart(fig, use_container_width=True)
+            marker_color=chart_theme.SERIES,
+            marker_line=dict(color=chart_theme.SURFACE, width=2),
+            marker_cornerradius=4,
+            # Plotly dims unselected points to 0.2 after a click, which washes
+            # the whole chart out. Keep the rest readable.
+            unselected=dict(marker=dict(opacity=0.55)),
+            hovertemplate='%{y}<br>重要性 %{x}<extra>点击查看公式</extra>',
+        ))
+        chart_theme.apply_theme(fig, height=450, x_title='重要性')
+        fig.update_layout(margin=dict(l=8, r=16, t=8, b=40))
+        fig.update_yaxes(showgrid=False)
+        fig.update_xaxes(showgrid=True, gridcolor=chart_theme.GRID)
+        event = st.plotly_chart(fig, width='stretch', key='factor_importance',
+                                on_select='rerun', selection_mode='points')
+        _remember_factor_click(event)
 
     with col2:
         st.markdown("**当前因子值 vs 历史分位**")
@@ -418,18 +484,39 @@ def render_factor_tab(ctx):
             fig.add_trace(go.Bar(
                 y=pct_df['因子'], x=pct_df['分位'],
                 orientation='h', marker_color=colors,
+                marker_line=dict(color=chart_theme.SURFACE, width=2),
+                marker_cornerradius=4,
                 text=pct_df['分位'].apply(lambda x: f'{x:.0f}%'),
-                textposition='outside',
+                textposition='outside', cliponaxis=False,
+                unselected=dict(marker=dict(opacity=0.55)),
+                customdata=pct_df[['当前值', '均值']].to_numpy(),
+                hovertemplate=('%{y}<br>历史分位 %{x:.0f}%<br>'
+                               '当前值 %{customdata[0]}<br>均值 %{customdata[1]}'
+                               '<extra>点击查看公式</extra>'),
             ))
-            fig.add_vline(x=50, line_dash="dot", line_color="gray", opacity=0.3)
-            fig.add_vline(x=25, line_dash="dash", line_color="orange", opacity=0.2)
-            fig.add_vline(x=75, line_dash="dash", line_color="orange", opacity=0.2)
-            fig.update_layout(
-                height=450, margin=dict(l=10, r=40, t=10, b=10),
-                xaxis=dict(title='历史分位 (%)', range=[-5, 105]),
-                yaxis={'categoryorder': 'total ascending'},
-            )
-            st.plotly_chart(fig, use_container_width=True)
+            chart_theme.reference_line(fig, 50, orientation='v')
+            chart_theme.apply_theme(fig, height=450, x_title='历史分位 (%)')
+            fig.update_layout(margin=dict(l=8, r=40, t=8, b=40))
+            fig.update_xaxes(range=[-5, 108], showgrid=True,
+                             gridcolor=chart_theme.GRID)
+            fig.update_yaxes(showgrid=False, categoryorder='total ascending')
+            event = st.plotly_chart(fig, width='stretch', key='factor_percentile',
+                                    on_select='rerun', selection_mode='points')
+            _remember_factor_click(event)
+            st.caption("竖线为 50% 中位水平。红色为分位超过 90% 或低于 10%，橙色为超过 75% 或低于 25%。")
+
+    # Formula detail for the clicked factor. A selector keeps the formulas
+    # reachable by keyboard, so the chart click is not the only route.
+    st.divider()
+    choices = list(dict.fromkeys(
+        top15['feature'].tolist() + [f for f in factor_formulas.FORMULAS]))
+    selected = st.session_state.get("selected_factor")
+    if selected not in choices:
+        selected = choices[0] if choices else None
+        st.session_state["selected_factor"] = selected
+    st.selectbox("因子计算公式", choices, key="selected_factor")
+    if st.session_state.get("selected_factor"):
+        _render_factor_formula(st.session_state["selected_factor"], df)
 
     # Anomaly flags
     st.divider()
