@@ -1,0 +1,32 @@
+{
+  "sources": ["eastmoney_tl", "pbc_news", "pbc_omo", "mof_bonds"],
+  "interval_seconds": 600,
+  "alert_max_age_hours": 24,
+  "semantic_mode": "off",
+  "semantic_max_calls_per_run": 10,
+  "notification_channel": "local",
+  "webhook_env": "BOND_MONITOR_FEISHU_WEBHOOK",
+  "signing_secret_env": "BOND_MONITOR_FEISHU_SECRET",
+  "tasks": [
+    {
+      "id": "rates-liquidity",
+      "name": "利率债与货币政策",
+      "topics": ["rates", "liquidity", "supply"],
+      "entities": [],
+      "keywords": [],
+      "exclude_keywords": [],
+      "min_severity": "medium",
+      "notify_unverified": false
+    },
+    {
+      "id": "credit-risk",
+      "name": "信用债风险",
+      "topics": ["credit"],
+      "entities": [],
+      "keywords": [],
+      "exclude_keywords": [],
+      "min_severity": "medium",
+      "notify_unverified": false
+    }
+  ]
+}

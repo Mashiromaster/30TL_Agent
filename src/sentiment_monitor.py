@@ -18,7 +18,7 @@ import math
 import os
 import re
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
@@ -35,6 +35,11 @@ from intelligence_events import (
     redact_sensitive_text,
     utc_now_iso,
 )
+from bond_event_analysis import (
+    CREDIT_RISK, EvidenceSemanticAnalyzer, assertion_context, event_thread_id,
+)
+from bond_monitor_config import MonitorConfig, SEVERITIES
+from bond_monitor_delivery import NotificationService
 
 
 PROMPT_INJECTION_PATTERNS = {
@@ -63,6 +68,7 @@ class ProviderFetchResult:
     documents: list[ProviderDocument]
     next_cursor: str | None
     fetched_at: str | None = None
+    errors: tuple[str, ...] = ()
 
 
 class NewsProvider(Protocol):
@@ -120,7 +126,11 @@ class EastmoneyTLNewsProvider:
         "资金面",
         "地方债",
         "专项债",
+        "信用债", "公司债", "企业债", "城投", "违约", "展期", "兑付", "评级", "债务",
     )
+
+    def __init__(self, *, keywords=()):
+        self.keywords = type(self).keywords + tuple(keywords)
 
     def fetch_since(self, cursor: SourceCursor | None) -> ProviderFetchResult:
         import pandas as pd
@@ -189,17 +199,15 @@ class EastmoneyTLNewsProvider:
                 decoded_cursor = None
             if isinstance(decoded_cursor, dict):
                 cursor_timestamp = decoded_cursor.get("published_at")
-        if cursor_timestamp:
-            cursor_ts = normalize_published(cursor_timestamp)
-            if pd.notna(cursor_ts):
-                # Re-read the cursor timestamp inclusively.  Stable document
-                # IDs plus the store's unique constraint de-duplicate repeats,
-                # while a second item published at the same timestamp cannot
-                # be lost between polls.
-                df = df[df["published_at"].isna() | (df["published_at"] >= cursor_ts)]
+        # The endpoint is already a bounded recent-news window. Re-read all of
+        # it to discover late arrivals and corrected articles; SQLite dedupes.
 
         docs: list[ProviderDocument] = []
         max_seen: tuple[Any, str] | None = None
+        if cursor_timestamp:
+            previous_ts = normalize_published(cursor_timestamp)
+            if pd.notna(previous_ts):
+                max_seen = (previous_ts, "")
         for idx, row in df.iterrows():
             published = row.get("published_at")
             published_at = (
@@ -247,16 +255,22 @@ class TLRuleAnalyzer:
     easing_keywords = ("降准", "降息", "净投放", "释放流动性", "宽松", "呵护流动性")
     tightening_keywords = ("加息", "升息", "提准", "净回笼", "收紧", "资金面收紧")
     bullish_keywords = ("利好", "收益率下行", "债市走强", "资金面宽松", "降准", "降息")
-    bearish_keywords = ("利空", "收益率上行", "债市调整", "供给压力", "增发", "通胀")
+    bearish_keywords = ("利空", "收益率上行", "债市调整", "供给压力")
     liquidity_keywords = ("流动性", "资金面", "MLF", "OMO", "逆回购", "降准", "净投放")
     growth_keywords = ("PMI", "经济", "增长", "地产", "消费", "投资")
     inflation_keywords = ("CPI", "PPI", "通胀", "价格")
     supply_keywords = ("地方债", "专项债", "供给", "发行", "增发")
+    credit_keywords = ("信用债", "公司债", "企业债", "城投", "违约", "展期", "兑付", "评级", "债务重组")
+
+    def __init__(self, *, entities=()):
+        self.entities = tuple(entities)
 
     def assess(self, document: DocumentRecord) -> EventAssessment:
         text = f"{document.title}\n{document.content}"
+        context = assertion_context(document, entities=self.entities)
+        directional_text = context["asserted_text"]
         policy_stance = self._choice(
-            text,
+            directional_text,
             positive=self.easing_keywords,
             negative=self.tightening_keywords,
             positive_label="easing",
@@ -264,7 +278,7 @@ class TLRuleAnalyzer:
             neutral_label="neutral",
         )
         bond_impact = self._choice(
-            text,
+            directional_text,
             positive=self.bullish_keywords,
             negative=self.bearish_keywords,
             positive_label="bullish",
@@ -287,6 +301,23 @@ class TLRuleAnalyzer:
         assets = self._assets(text)
         tenors = self._tenors(text)
         missing_reason = ""
+        if CREDIT_RISK.search(text):
+            event_type = "credit_risk"
+            assets = ["CREDIT_BOND"]
+            if directional_text:
+                severity, bond_impact = "high", "bearish"
+                confidence = 0.7
+        elif channels["supply"] and "发行" in text:
+            event_type = "bond_supply"
+            # Issuance alone says nothing about the surprise relative to pricing.
+            severity = "medium"
+        if context["fact_status"] != "asserted":
+            policy_stance = bond_impact = "unclear"
+            confidence = min(confidence, 0.4)
+            channels = {name: 0.0 for name in channels}
+            severity = "medium" if context["fact_status"] == "denied" else "low"
+            if event_type == "bond_supply" and context["verification"] == "primary_source":
+                severity = "medium"  # A published issuance plan, not a completed sale.
         if prompt_patterns:
             # Quarantined text remains available for audit, but it must not
             # create directional intelligence, alerts, or downstream model
@@ -303,7 +334,7 @@ class TLRuleAnalyzer:
 
         return EventAssessment(
             document_id=document.document_id,
-            event_cluster_id=document.event_cluster_id,
+            event_cluster_id=event_thread_id(document, context, document.event_cluster_id),
             event_type=event_type,
             severity=severity,
             policy_stance=policy_stance,
@@ -319,6 +350,7 @@ class TLRuleAnalyzer:
             missing_reason=missing_reason,
             raw_response={
                 "source": "deterministic_tl_rules",
+                **{key: value for key, value in context.items() if key != "asserted_text"},
                 "matched_keywords": matched,
                 "prompt_injection_patterns": prompt_patterns,
                 "scores": {
@@ -367,6 +399,7 @@ class TLRuleAnalyzer:
             + self.growth_keywords
             + self.inflation_keywords
             + self.supply_keywords
+            + self.credit_keywords
         )
         lower = text.lower()
         return sorted({keyword for keyword in pool if keyword.lower() in lower})
@@ -395,21 +428,22 @@ class TLRuleAnalyzer:
 
     @staticmethod
     def _assets(text: str) -> list[str]:
+        if re.search(r"信用债|公司债|企业债|城投|违约|展期|兑付|评级", text):
+            return ["CREDIT_BOND"]
         if re.search(r"(TL|30年|三十年|超长期|国债期货)", text, re.IGNORECASE):
             return ["TL"]
         if "国债" in text or "债券" in text or "债市" in text:
+            return ["CGB"]
+        if re.search(r"央行|人民银行|降准|降息|逆回购|LPR|MLF", text, re.I):
             return ["CGB"]
         return []
 
     @staticmethod
     def _tenors(text: str) -> list[str]:
-        if re.search(r"(TL|30年|三十年|超长期)", text, re.IGNORECASE):
-            return ["30Y"]
-        if re.search(r"(10年|十年|T合约)", text, re.IGNORECASE):
-            return ["10Y"]
-        if re.search(r"(5年|五年|TF合约)", text, re.IGNORECASE):
-            return ["5Y"]
-        return []
+        patterns = {"30Y": r"(?<![A-Za-z])TL(?![A-Za-z])|30年|三十年", "10Y": r"10年|十年|(?<![A-Za-z])T合约",
+                    "5Y": r"(?<!\d)5年|五年|TF合约", "2Y": r"(?<!\d)2年|两年|二年|TS合约",
+                    "50Y": r"50年|五十年"}
+        return [tenor for tenor, pattern in patterns.items() if re.search(pattern, text, re.I)]
 
     @staticmethod
     def _evidence(text: str, matched: list[str]) -> list[str]:
@@ -445,19 +479,39 @@ class SentimentMonitor:
         store: IntelligenceEventStore | None = None,
         analyzer: TLRuleAnalyzer | None = None,
         jev_adapter: Any | None = None,
+        config: MonitorConfig | None = None,
+        config_path: str | Path | None = None,
+        semantic_analyzer=None,
+        allow_notifications: bool = False,
+        notification_sender=None,
         now_fn=utc_now_iso,
     ):
         self.base_dir = Path(base_dir)
+        self.config = config or MonitorConfig.load(self.base_dir, config_path)
         self.data_dir = self.base_dir / "data" / "intelligence"
         self.output_dir = self.base_dir / "outputs" / "intelligence"
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.store = store or IntelligenceEventStore(self.base_dir)
-        self.providers = list(providers) if providers is not None else [EastmoneyTLNewsProvider()]
-        self.analyzer = analyzer or TLRuleAnalyzer()
+        if providers is None:
+            from bond_news_sources import configured_providers
+            providers = configured_providers(self.config)
+        self.providers = list(providers)
+        self.analyzer = analyzer or TLRuleAnalyzer(entities=tuple(
+            entity for task in self.config.tasks for entity in task.entities
+        ))
         self.jev_adapter = jev_adapter
+        self.semantic_analyzer = semantic_analyzer or (
+            EvidenceSemanticAnalyzer() if self.config.semantic_mode == "online" else None
+        )
+        self.notifications = NotificationService(self.store, self.config,
+            allow_external=allow_notifications, sender=notification_sender)
+        self.semantic_calls = 0
+        self.semantic_failures = 0
+        self.delivery_counts = {}
         self.now_fn = now_fn
 
     def run_once(self) -> MonitorRun:
+        self.semantic_calls = self.semantic_failures = 0
         started_at = self.now_fn()
         run = MonitorRun(run_id=self._run_id(started_at), started_at=started_at)
         alert_clusters_touched: set[str] = set()
@@ -488,10 +542,14 @@ class SentimentMonitor:
             inserted = self.store.commit_provider_batch(
                 provider.name,
                 records,
-                next_cursor=result.next_cursor,
+                next_cursor=result.next_cursor if not dropped else None,
                 fetched_at=fetched_at,
             )
             run.documents_inserted += len(inserted)
+            if result.errors:
+                run.sources_failed += 1
+                self.store.record_source_failure(provider.name,
+                    error="; ".join(result.errors), checked_at=fetched_at)
             source_health = self.store.get_source_health(provider.name)
             if source_health is not None and source_health.content_stale:
                 run.sources_content_stale += 1
@@ -499,11 +557,16 @@ class SentimentMonitor:
             for document in self.store.list_unassessed_documents(
                 source_name=provider.name,
                 limit=self.MAX_UNASSESSED_PER_PROVIDER,
+                model_version_prefix=DEFAULT_RULE_MODEL_VERSION,
+                resume_semantic_budget=self.semantic_analyzer is not None,
             ):
                 assessment = self._assess(document)
+                assessment.assessed_at = self.now_fn()
                 should_alert = (
                     not assessment.prompt_injection_flag
-                    and assessment.severity in {"medium", "high", "critical"}
+                    and any(task.matches(document.title + "\n" + document.content)
+                            and SEVERITIES.get(assessment.severity, 0) >= SEVERITIES[task.min_severity]
+                            for task in self.config.tasks)
                 )
                 _assessment_id, created, alert = self.store.record_assessment(
                     assessment, open_alert=should_alert
@@ -527,6 +590,10 @@ class SentimentMonitor:
             run.status = "partial_failure"
         else:
             run.status = "ok"
+        self.notifications.prepare(self.store.recent_event_records(limit=1000), run.finished_at)
+        self.delivery_counts = self.notifications.dispatch(run.finished_at)
+        if run.status == "ok" and (self.delivery_counts.get("failed") or self.delivery_counts.get("exhausted") or self.semantic_failures):
+            run.status = "partial_failure"
         report_path = self._write_report(run)
         run.report_path = str(report_path)
         self.store.record_monitor_run(run)
@@ -607,9 +674,25 @@ class SentimentMonitor:
 
     def _assess(self, document: DocumentRecord) -> EventAssessment:
         assessment = self.analyzer.assess(document)
+        assessment.raw_response = {**assessment.raw_response, "task_ids": [
+            task.id for task in self.config.tasks if task.matches(document.title + "\n" + document.content)
+        ]}
         if assessment.prompt_injection_flag:
             return assessment
-        if self.jev_adapter is None:
+        if self.semantic_analyzer is not None and assessment.raw_response["task_ids"]:
+            if self.semantic_calls < self.config.semantic_max_calls_per_run:
+                self.semantic_calls += 1
+                try:
+                    assessment = self.semantic_analyzer.enrich(document, assessment)
+                except Exception as exc:
+                    self.semantic_failures += 1
+                    assessment.raw_response = {**assessment.raw_response,
+                        "semantic": {"status": "failed", "error_type": type(exc).__name__}}
+                    assessment.missing_reason = "semantic analysis failed; deterministic fallback"
+            else:
+                assessment.raw_response = {**assessment.raw_response,
+                    "semantic": {"status": "budget_exhausted"}}
+        if self.jev_adapter is None or getattr(self.jev_adapter, "mode", None) == "off":
             return assessment
         try:
             jev_features = self.jev_adapter.analyze_document(
@@ -648,14 +731,28 @@ class SentimentMonitor:
             assessment.raw_response = raw
             model = getattr(self.jev_adapter, "model", "jev")
             assessment.model_version = f"{assessment.model_version}+{model}"
-            if float(allowed_jev.get("JEV_Impact_Level", 0.0)) >= 3.0:
+            if (float(allowed_jev.get("JEV_Impact_Level", 0.0)) >= 3.0
+                    and assessment.raw_response.get("fact_status") == "asserted"):
                 assessment.severity = "high"
         return assessment
 
     def _write_report(self, run: MonitorRun) -> Path:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         report_path = self.output_dir / f"{run.run_id}.json"
+        events = self.store.recent_event_records()
+        for item in events:
+            # Apply the CURRENT subscription even to previously analyzed items.
+            item["matched_task_ids"] = [task.id for task in self.config.tasks
+                if task.matches(item["title"] + "\n" + item["content"])]
         payload = {
+            "config": asdict(self.config),
+            "semantic_calls": self.semantic_calls,
+            "semantic_failures": self.semantic_failures,
+            "notification_counts": self.delivery_counts,
+            "deliveries": [{key: value for key, value in item.items() if key not in {"payload_json", "payload"}}
+                           for item in self.store.list_deliveries()],
+            "events": [{key: value for key, value in item.items() if key != "content"}
+                       for item in events],
             "run_id": run.run_id,
             "started_at": run.started_at,
             "finished_at": run.finished_at,
@@ -710,7 +807,60 @@ class SentimentMonitor:
             except OSError:
                 pass
             raise
+        self._write_digest(run, payload)
         return report_path
+
+    def _write_digest(self, run, payload):
+        """A human-readable evidence digest; no LLM required and no trade actions."""
+        from html import escape
+        from urllib.parse import urlsplit
+
+        lines = ["# 债券舆情监控简报", "", f"运行：{run.run_id}", f"状态：{run.status}",
+                 f"时间：{run.finished_at}", "", "仅供研究；观点不等于事实，不构成交易指令。", "",
+                 "以下为最近最多 200 条评估的订阅视图，不是本轮全部新增事件，也不代表全网覆盖。", "",
+                 "## 数据源", ""]
+        for health in payload["source_health"]:
+            state = "抓取异常" if health["source_stale"] else "长时间无新增" if health["content_stale"] else "正常"
+            lines.append(f"- {health['source_name']}: {state}; {escape(health['last_error'])}")
+        for task in self.config.tasks:
+            lines.extend(["", f"## {escape(task.name)}", ""])
+            seen = set()
+            for item in payload["events"]:
+                if task.id not in item["matched_task_ids"] or item["event_cluster_id"] in seen:
+                    continue
+                seen.add(item["event_cluster_id"])
+                raw = item["raw_response"]
+                lines.extend([f"### {escape(item['title'])}", "",
+                    f"状态：{raw.get('fact_status', 'unknown')}；来源核验：{raw.get('verification', 'unknown')}；等级：{item['severity']}",
+                    f"发布时间：{item['published_at']}；首次可用：{item['available_at']}",
+                    f"事件：{item['event_cluster_id']}；文档：{item['document_id']}", ""])
+                url = item["url"]
+                if urlsplit(url).scheme in {"http", "https"}:
+                    lines.extend(["[查看原始出处](" + url.replace("(", "%28").replace(")", "%29").replace(" ", "%20") + ")", ""])
+                if item["document_metadata"].get("revision_of"):
+                    lines.append("更正/修订，前一版本：" + item["document_metadata"]["revision_of"])
+                if item["prompt_injection_flag"]:
+                    lines.append("检测到不可信指令，已隔离，不参与分析或通知。")
+                else:
+                    for evidence in item["evidence"]:
+                        lines.append("> " + escape(evidence).replace("\n", "\n> "))
+                    semantic = raw.get("semantic", {})
+                    if semantic.get("status") == "validated":
+                        lines.extend(["", "模型解读（未经独立事实核验）：" + escape(semantic["summary"])])
+                lines.append("")
+            if not seen:
+                lines.append("暂无匹配事件。")
+        lines.extend(["", "## 通知", "", json.dumps(self.delivery_counts, ensure_ascii=False),
+                      "", "local 仅代表本地落账；sent 才代表外部接口确认接收。默认不发送外部消息。", ""])
+        target = self.output_dir / f"{run.run_id}.md"
+        descriptor, temporary_path = tempfile.mkstemp(prefix=".digest.", dir=self.output_dir)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                handle.write("\n".join(lines))
+            os.replace(temporary_path, target)
+        finally:
+            if os.path.exists(temporary_path):
+                os.unlink(temporary_path)
 
     @staticmethod
     def _run_id(started_at: str) -> str:

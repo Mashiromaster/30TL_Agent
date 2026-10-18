@@ -187,7 +187,7 @@ def test_jev_failure_keeps_raw_document_and_baseline_assessment(tmp_path):
     assessment = store.list_assessments()[0]
     assert assessment.policy_stance == "easing"
     assert assessment.bond_impact == "bullish"
-    assert assessment.model_version == "deterministic-tl-rules-v1+jev-failed"
+    assert assessment.model_version == "deterministic-tl-rules-v2+jev-failed"
     assert "jev timeout" in assessment.missing_reason
 
 

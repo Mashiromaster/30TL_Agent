@@ -20,7 +20,7 @@ from typing import Any, Callable, Iterable, Mapping
 
 
 ASSESSMENT_SCHEMA_VERSION = "event-assessment-v1"
-DEFAULT_RULE_MODEL_VERSION = "deterministic-tl-rules-v1"
+DEFAULT_RULE_MODEL_VERSION = "deterministic-tl-rules-v2"
 ALERT_STATUSES = {"open", "suppressed", "reported"}
 SOURCE_CONTENT_STALE_AFTER_SECONDS = 72 * 60 * 60
 _BLOCKED_RESPONSE_KEYS = {
@@ -71,7 +71,9 @@ def _safe_json_loads(value: str | None, default: Any) -> Any:
 
 def redact_sensitive_text(value: object) -> str:
     """Remove common credential forms before persisting or displaying text."""
-    text = _AUTHORIZATION_PATTERN.sub("Authorization=[REDACTED]", str(value))
+    text = re.sub(r"https://open\.feishu\.cn/open-apis/bot/v2/hook/[^\s\"'<>]+",
+                  "[REDACTED_WEBHOOK]", str(value))
+    text = _AUTHORIZATION_PATTERN.sub("Authorization=[REDACTED]", text)
     text = _BEARER_PATTERN.sub("Bearer [REDACTED]", text)
     text = _SECRET_PATTERN.sub(lambda match: f"{match.group(1)}=[REDACTED]", text)
     return text
@@ -185,6 +187,7 @@ class DocumentRecord:
         document_id = self.document_id or _hash_parts(
             normalized_source,
             source_document_id,
+            content_hash,
             length=40,
         )
         event_cluster_id = self.event_cluster_id or _hash_parts(
@@ -305,10 +308,21 @@ class MonitorRun:
     report_path: str = ""
 
 
+class _ClosingConnection(sqlite3.Connection):
+    """sqlite's default context manager commits, but does not close the handle."""
+
+    def __exit__(self, *args):
+        try:
+            return super().__exit__(*args)
+        finally:
+            self.close()
+
+
 class IntelligenceEventStore:
     """Small sqlite repository for intelligence documents and assessments."""
 
-    def __init__(self, base_dir: str | Path, *, db_path: str | Path | None = None):
+    def __init__(self, base_dir: str | Path, *, db_path: str | Path | None = None,
+                 read_only: bool = False):
         self.base_dir = Path(base_dir).resolve()
         allowed_root = (self.base_dir / "data" / "intelligence").resolve()
         if db_path is None:
@@ -322,11 +336,22 @@ class IntelligenceEventStore:
                 "intelligence db_path must stay under data/intelligence"
             ) from exc
         self.db_path = resolved_db
+        self.read_only = read_only
+        if read_only:
+            if not self.db_path.is_file():
+                raise FileNotFoundError("intelligence event store does not exist")
+            return
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._ensure_schema()
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self.db_path), timeout=5.0)
+        if self.read_only:
+            conn = sqlite3.connect(self.db_path.as_uri() + "?mode=ro", uri=True,
+                                   timeout=5.0, factory=_ClosingConnection)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA query_only = ON")
+            return conn
+        conn = sqlite3.connect(str(self.db_path), timeout=5.0, factory=_ClosingConnection)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA busy_timeout = 5000")
         conn.execute("PRAGMA journal_mode = WAL")
@@ -352,7 +377,7 @@ class IntelligenceEventStore:
                     event_cluster_id TEXT NOT NULL,
                     metadata_json TEXT NOT NULL,
                     inserted_at TEXT NOT NULL,
-                    UNIQUE(source_name, source_document_id)
+                    UNIQUE(source_name, source_document_id, content_hash)
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_documents_source
@@ -434,6 +459,23 @@ class IntelligenceEventStore:
                     alerts_opened INTEGER NOT NULL,
                     report_path TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS notification_outbox (
+                    delivery_id TEXT PRIMARY KEY,
+                    task_id TEXT NOT NULL,
+                    channel TEXT NOT NULL,
+                    assessment_id TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    next_attempt_at TEXT NOT NULL,
+                    last_error TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY(assessment_id) REFERENCES assessments(assessment_id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_outbox_due
+                    ON notification_outbox(status, next_attempt_at);
                 """
             )
             columns = {
@@ -477,6 +519,38 @@ class IntelligenceEventStore:
                 conn.execute(
                     "ALTER TABLE source_health ADD COLUMN content_baseline_at TEXT"
                 )
+        self._migrate_document_versions()
+
+    def _migrate_document_versions(self) -> None:
+        """Replace the old uniqueness constraint without changing historical IDs/FKs."""
+        with self._connect() as conn:
+            conn.execute("PRAGMA foreign_keys = OFF")
+            conn.execute("BEGIN IMMEDIATE")
+            indexes = conn.execute("PRAGMA index_list(documents)").fetchall()
+            old_constraint = any(
+                [row["name"] for row in conn.execute(
+                    'PRAGMA index_info("' + index["name"].replace('"', '""') + '")'
+                )] == ["source_name", "source_document_id"]
+                for index in indexes if index["unique"]
+            )
+            if old_constraint:
+                conn.execute("""CREATE TABLE documents_v2 (
+                    document_id TEXT PRIMARY KEY, source_name TEXT NOT NULL,
+                    source_document_id TEXT NOT NULL, title TEXT NOT NULL,
+                    content TEXT NOT NULL, url TEXT NOT NULL DEFAULT '',
+                    published_at TEXT, received_at TEXT, available_at TEXT,
+                    content_hash TEXT NOT NULL, event_cluster_id TEXT NOT NULL,
+                    metadata_json TEXT NOT NULL, inserted_at TEXT NOT NULL,
+                    UNIQUE(source_name, source_document_id, content_hash))""")
+                conn.execute("INSERT INTO documents_v2 SELECT * FROM documents")
+                conn.execute("DROP TABLE documents")
+                conn.execute("ALTER TABLE documents_v2 RENAME TO documents")
+                conn.execute("CREATE INDEX idx_documents_source ON documents(source_name, inserted_at)")
+                conn.execute("CREATE INDEX idx_documents_cluster ON documents(event_cluster_id)")
+            if conn.execute("PRAGMA foreign_key_check").fetchone():
+                raise ValueError("intelligence ledger migration violates foreign keys")
+            conn.commit()
+            conn.execute("PRAGMA foreign_keys = ON")
 
     def commit_provider_batch(
         self,
@@ -501,8 +575,20 @@ class IntelligenceEventStore:
         inserted: list[DocumentRecord] = []
         conn = self._connect()
         try:
-            conn.execute("BEGIN")
+            conn.execute("BEGIN IMMEDIATE")
             for doc in normalized_docs:
+                previous = conn.execute(
+                    "SELECT * FROM documents WHERE source_name = ? AND source_document_id = ? "
+                    "ORDER BY rowid DESC LIMIT 1", (source_name, doc.source_document_id)
+                ).fetchone()
+                if previous is not None and previous["content_hash"] != doc.content_hash:
+                    previous_assessment = conn.execute(
+                        "SELECT event_cluster_id FROM assessments WHERE document_id=? ORDER BY rowid DESC LIMIT 1",
+                        (previous["document_id"],),
+                    ).fetchone()
+                    doc = replace(doc, event_cluster_id=(previous_assessment["event_cluster_id"]
+                                  if previous_assessment else previous["event_cluster_id"]),
+                                  metadata={**doc.metadata, "revision_of": previous["document_id"]})
                 result = conn.execute(
                     """
                     INSERT OR IGNORE INTO documents (
@@ -698,14 +784,20 @@ class IntelligenceEventStore:
         *,
         source_name: str | None = None,
         limit: int | None = None,
+        model_version_prefix: str | None = None,
+        resume_semantic_budget: bool = False,
     ) -> list[DocumentRecord]:
-        sql = """
-            SELECT d.*
-            FROM documents d
-            LEFT JOIN assessments a ON a.document_id = d.document_id
-            WHERE a.assessment_id IS NULL
+        version_clause = " AND a.model_version LIKE ?" if model_version_prefix else ""
+        budget_clause = (" AND COALESCE(json_extract(a.raw_response_json, '$.semantic.status'), '') "
+                         "!= 'budget_exhausted'") if resume_semantic_budget else ""
+        sql = f"""
+            SELECT d.* FROM documents d
+            WHERE NOT EXISTS (SELECT 1 FROM assessments a WHERE a.document_id = d.document_id
+                              {version_clause} {budget_clause})
         """
         params: list[Any] = []
+        if model_version_prefix:
+            params.append(model_version_prefix + "%")
         if source_name:
             sql += " AND d.source_name = ?"
             params.append(source_name)
@@ -826,11 +918,16 @@ class IntelligenceEventStore:
                 created = False
             else:
                 cluster_exists = conn.execute(
-                    "SELECT 1 FROM assessments "
-                    "WHERE event_cluster_id = ? LIMIT 1",
+                    "SELECT * FROM assessments "
+                    "WHERE event_cluster_id = ? ORDER BY rowid DESC LIMIT 1",
                     (assessment.event_cluster_id,),
                 ).fetchone()
-                if cluster_exists is not None and assessment.novelty != 0.0:
+                changed = cluster_exists is not None and (
+                    _safe_json_loads(cluster_exists["raw_response_json"], {}).get("fact_status")
+                    != assessment.raw_response.get("fact_status")
+                    or cluster_exists["bond_impact"] != assessment.bond_impact
+                )
+                if cluster_exists is not None and not changed and assessment.novelty != 0.0:
                     assessment.novelty = 0.0
                     assessment.assessment_id = ""
                     assessment = assessment.normalized()
@@ -891,6 +988,75 @@ class IntelligenceEventStore:
             ).fetchall()
         return [self._row_to_assessment(row) for row in rows]
 
+    def recent_event_records(self, limit: int = 200) -> list[dict]:
+        """Bounded evidence view; full revision history remains in the ledger."""
+        from dataclasses import asdict
+
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT a.*, d.title, d.content, d.url, d.source_name, d.published_at, "
+                "d.available_at, d.metadata_json FROM assessments a "
+                "JOIN documents d ON d.document_id = a.document_id "
+                "WHERE NOT EXISTS (SELECT 1 FROM assessments newer WHERE newer.document_id=a.document_id "
+                "AND newer.rowid > a.rowid) "
+                "ORDER BY d.rowid DESC, a.rowid DESC LIMIT ?", (max(1, min(int(limit), 1000)),)
+            ).fetchall()
+        return [{**asdict(self._row_to_assessment(row)),
+                 **{key: row[key] for key in ("title", "content", "url", "source_name", "published_at", "available_at")},
+                 "document_metadata": _safe_json_loads(row["metadata_json"], {})} for row in rows]
+
+    def enqueue_notification(self, *, delivery_id, task_id, channel, assessment_id, payload, now):
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO notification_outbox "
+                "(delivery_id, task_id, channel, assessment_id, payload_json, next_attempt_at, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(delivery_id) DO UPDATE SET "
+                "assessment_id=excluded.assessment_id, payload_json=excluded.payload_json "
+                "WHERE notification_outbox.status IN ('pending', 'failed')",
+                (delivery_id, task_id, channel, assessment_id, _stable_json(_sanitize_mapping(payload)), now, now, now),
+            )
+
+    def list_deliveries(self, limit=100) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute("SELECT * FROM notification_outbox ORDER BY rowid DESC LIMIT ?",
+                                (max(1, min(int(limit), 1000)),)).fetchall()
+        return [{**dict(row), "payload": _safe_json_loads(row["payload_json"], {})} for row in rows]
+
+    def claim_delivery(self, *, channel, now, lease_until, active_tasks) -> dict | None:
+        """Lease a due item so concurrent monitors do not both send it."""
+        if not active_tasks:
+            return None
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            placeholders = ",".join("?" for _ in active_tasks)
+            row = conn.execute(
+                f"SELECT * FROM notification_outbox WHERE channel = ? AND task_id IN ({placeholders}) "
+                "AND status IN ('pending', 'failed', 'sending') AND attempts < 5 "
+                "AND julianday(next_attempt_at) <= julianday(?) ORDER BY rowid LIMIT 1",
+                (channel, *active_tasks, now),
+            ).fetchone()
+            if row is None:
+                return None
+            conn.execute("UPDATE notification_outbox SET status='sending', attempts=attempts+1, "
+                         "next_attempt_at=?, updated_at=? WHERE delivery_id=?",
+                         (lease_until, now, row["delivery_id"]))
+        return {**dict(row), "attempts": row["attempts"] + 1,
+                "payload": _safe_json_loads(row["payload_json"], {})}
+
+    def finish_delivery(self, delivery_id, *, status, now, next_attempt_at=None, error=""):
+        if status not in {"sent", "failed", "local", "cancelled"}:
+            raise ValueError("invalid delivery status")
+        with self._connect() as conn:
+            conn.execute("UPDATE notification_outbox SET status=?, updated_at=?, next_attempt_at=?, "
+                         "last_error=? WHERE delivery_id=? AND status='sending'",
+                         (status, now, next_attempt_at or now, _redact_error(error), delivery_id))
+
+    def get_document(self, document_id: str) -> DocumentRecord | None:
+        """Retrieve the exact immutable source revision for an assessment."""
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM documents WHERE document_id = ?", (document_id,)).fetchone()
+        return self._row_to_document(row) if row is not None else None
+
     def query_assessments(
         self,
         *,
@@ -905,7 +1071,7 @@ class IntelligenceEventStore:
         requested = sorted({str(asset) for asset in (assets or []) if str(asset)})
         bounded_limit = max(1, min(int(limit), 1000))
         asset_clause = ""
-        params: list[Any] = [as_of, as_of, as_of]
+        params: list[Any] = [as_of] * 6
         if requested:
             placeholders = ",".join("?" for _ in requested)
             asset_clause = f"""
@@ -929,6 +1095,21 @@ class IntelligenceEventStore:
                   AND (
                     a.expires_at IS NULL
                     OR julianday(a.expires_at) > julianday(?)
+                  )
+                  AND NOT EXISTS (
+                    SELECT 1 FROM documents newer
+                    JOIN assessments newer_a ON newer_a.document_id = newer.document_id
+                    WHERE newer.source_name = d.source_name
+                      AND newer.source_document_id = d.source_document_id
+                      AND newer.rowid > d.rowid
+                      AND julianday(newer.available_at) <= julianday(?)
+                      AND julianday(newer_a.assessed_at) <= julianday(?)
+                  )
+                  AND NOT EXISTS (
+                    SELECT 1 FROM assessments newer_assessment
+                    WHERE newer_assessment.document_id = a.document_id
+                      AND newer_assessment.rowid > a.rowid
+                      AND julianday(newer_assessment.assessed_at) <= julianday(?)
                   )
                 {asset_clause}
                 ORDER BY julianday(d.available_at) DESC,
