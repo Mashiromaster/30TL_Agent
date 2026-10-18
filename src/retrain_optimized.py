@@ -90,11 +90,10 @@ def prepare_training_data_full(df, prediction_horizon=30, include_enhanced=True)
         'Basis_ZScore_20', 'Basis_Trend', 'Basis_ZScore_10',
     ]
     
-    # 宏观因子自动检测
-    macro_patterns = ['SHIBOR_', 'Repo_', 'YC_', 'PMI_', 'CPI_', 'M2_',
-                      'SocialFin', 'Injection_', 'OMO_', 'Stock_Bond',
-                      'CN_US', 'Credit', 'Risk_On', 'Liquidity', 'Macro_Surprise']
-    macro_detected = [c for c in df.columns if any(p in c for p in macro_patterns)]
+    # 宏观因子自动检测。沿用 feature_registry 的统一前缀表，避免这里的副本
+    # 漏掉改名后的因子（旧副本只匹配 Macro_Surprise，接不到 Macro_State_Composite）。
+    from feature_registry import MACRO_PATTERNS
+    macro_detected = [c for c in df.columns if any(p in c for p in MACRO_PATTERNS)]
     core_features = core_features + macro_detected
     
     # 新增增强因子

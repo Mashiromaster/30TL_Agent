@@ -113,7 +113,11 @@ Data Pipeline (AKShare) → Factor Engine (151维)
 - 多时域共识: IC 0.003
 
 ### 7. 宏观因子主导
-Macro_Surprise_Composite 始终#1, 说明2025H2后市场由宏观政策驱动, 技术和微观因子降级
+宏观综合因子始终#1, 说明2025H2后市场由宏观政策驱动, 技术和微观因子降级
+
+**注意**: 该结论基于 `Macro_Surprise_Composite`, 而该因子已在 commit f44e254 (2026-09-18) 删除。
+当前管道产出的是 `Macro_State_Composite` (成员不同, 先裁剪±4再平均, 两者不等价) —
+"宏观主导"的结论在替代因子上**尚未重新验证**。
 
 ### 8. LoRA适配的可靠性验证
 第一周适配器仅训练出1棵树(early stopping自动终止) — 低容量约束防止在弱信号上过拟合，验证了LoRA设计思路
@@ -143,12 +147,15 @@ API Key 管理: `.env` 文件(自动加载) > Dashboard侧边栏输入(type=pass
 | 技术 | 4 | MACD_Hist, RSI, BB_Position |
 | 市场状态 | 4 | Market_Regime, Is_High_Vol, Trend_Consistency |
 | 基差 | 3 | Basis_ZScore_20, Basis_ZScore_10, Basis_Trend |
-| 宏观 | 14 | CN_US_10Y_Spread, PMI_ZScore, M2_Surprise, YC_*, Macro_Surprise_Composite |
+| 宏观 | 14 | CN_US_10Y_Spread, PMI_State_ZScore, M2_State_ZScore, YC_*, Macro_State_Composite |
 | 增强因子 | 35 | OI_Growth_5D/20D, Vol_Breakout, ADX, Spread_Stress, Vol_of_Vol |
 | **CNN嵌入** | **64** | **CNN_Emb_00 ~ CNN_Emb_63 (时空CNN瓶颈输出)** |
 
 ### Top 10 特征重要性
-1. Macro_Surprise_Composite (81) — 宏观综合意外
+
+测量于 2026-06-04 的模型。第1项所用因子已在 f44e254 删除, 重训后该排名需重新测量。
+
+1. ~~Macro_Surprise_Composite~~ (81) — 已删除, 替代为 Macro_State_Composite
 2. CN_US_10Y_Spread (51) — 中美利差
 3. Basis_ZScore_20 (39) — 基差偏离
 4. Short_Momentum_5D (38)

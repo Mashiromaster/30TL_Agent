@@ -10,7 +10,29 @@
 [![DeepSeek](https://img.shields.io/badge/DeepSeek-V4-4B32C3?logo=openai)](https://www.deepseek.com/)
 [![ChromaDB](https://img.shields.io/badge/ChromaDB-0.5-808080?logo=chromadb)](https://www.trychroma.com/)
 
-基于 LightGBM 双模型 + CNN 微观结构嵌入 + LoRA 式增量迭代的 **TL（30年期国债期货）智能量化策略系统**。整合量价、微观结构、基差和宏观因子，使用**甜点区排名信号**，具备**三阶段自我进化能力**。
+面向 TL（30年期国债期货）的金融研究系统，整合因子挖掘、版本化策略、研究证据与债券舆情监控。当前权威链路使用统一 SignalPolicy 和模型发布门禁；舆情、RAG、Jev、LLM 均为研究影子层，不下单、不改仓位，旧增量 AdapterStack 已退役。
+
+最新使用入口：[TL运行与发布手册](docs/tl_agent_operations.md) · [债券舆情监控 Agent 配置指南](docs/bond_sentiment_agent.md) · [混合决策框架调研与使用](docs/hybrid_decision_research_2026-10-03.md)。下面的历史架构说明尚未全部同步，以这些文档及当前代码为准。
+
+新增：[混合研究准备与候选验收](docs/hybrid_preparation.md)。前端提供只读就绪检查、本地因果因子候选、独立模型训练（不发布）和已保存候选读取。`--mode readiness / prepare-factors / train-candidate` 将准备与发布拆开；候选来源、输入哈希、标签分区及门禁结果可追溯。当前真实候选未通过封存集与策略门禁，未启用生产模型或实盘。
+
+下一阶段已接入：[分钟数据导入与覆盖审计](docs/minute_data_pipeline.md)。CSV 默认只读校验，确认后保存独立批次；显式选择并组装分钟快照，再用 `prepare-factors --minute-snapshot` 构建因子。原始数据真实审计发现 335 个不完整合约日，前端可下载待核对范围；未宣称历史缺口已补齐。
+
+来源适配已补充：[天勤 CSV 与新浪近期窗口](docs/minute_source_adapters.md)。天勤导出离线保留原文、精确核对纳秒并重放转换；公开近期行情必须显式联网，默认未知语义仅预览，另行确认才能保存独立批次。无后台轮询或自动训练。
+
+主界面已分层：[研究工作台导航与验收](docs/workspace_ui.md)。首页只展示状态与常用入口；左侧导航分为总览、市场与舆情、混合研究、因子实验室、数据与模型、回测与复盘、系统设置。每次仅渲染当前功能，行情默认读缓存。数据接入/训练已从研究页面移出，连接配置移至系统设置。
+
+前端「混合决策工作台」使用统一研究入口：已发布量化模型与证据检索 → Jev 路由/语义判断 → LLM Researcher → Advisor → 确定性风险检查与保守影子结论。页面展示同一运行的时点、来源、模型、阶段状态、证据引用与分歧；默认离线，不下单、不覆盖基础策略。在线服务需显式开启；缺失已发布模型、陈旧因子会明确阻断，不生成演示信号。
+
+```bash
+# 离线诊断，不重建因子、不采集情报、不保存审计产物
+.venv/bin/python src/main.py --mode hybrid --network-mode offline --no-persist
+```
+
+```bash
+# 抓取东方财富、央行及财政部公开债券情报，不调用模型、不外发消息
+.venv/bin/python src/main.py --mode monitor --no-llm
+```
 
 ---
 
@@ -55,7 +77,7 @@
 └───────────────────────┬──────────────────────────────────┘
                         ↓
 ┌──────────────────────────────────────────────────────────┐
-│                   Dashboard 14-Tab                         │
+│            研究工作台 · 七区导航 / 按需加载                 │
 │   信号·监控·因子·因评·回测·宏观·AI·RAG·记忆·迭代·评估·调参·调度·微调   │
 └──────────────────────────────────────────────────────────┘
 ```
@@ -176,7 +198,7 @@ F_Agent/
 │
 ├── src/                                # 源代码 (24个模块)
 │   ├── main.py                         # ★ 入口: --mode train|inference|iterate|evolve
-│   ├── dashboard_v2.py                 # ★ Dashboard V2 (14-Tab, 端口8503)
+│   ├── dashboard_v2.py                 # ★ 研究工作台 (分层导航, 端口8503)
 │   ├── signal_dashboard.py             # ★ 信号引擎 (甜点区排名信号)
 │   ├── LightGBM_model.py              # ★ LightGBM 双模型训练 (自动识别CNN特征)
 │   ├── self_evolution.py              # 旧适配器只读兼容状态（训练入口已停用）
@@ -241,8 +263,8 @@ echo DEEPSEEK_API_KEY=***  F_Agent/.env
 # F_AGENT_JEV_MODEL=jev-1.13.0
 # F_AGENT_JEV_GATE_MODE=shadow
 
-# 方法二：Dashboard 侧边栏直接输入（即时生效）
-# 启动 Dashboard 后在左侧 "🔑 API Key" 输入框粘贴 key
+# 方法二：Dashboard 系统设置（仅当前会话）
+# 左侧「系统设置」→「连接与缓存」→ 本会话 DeepSeek API Key
 
 # 方法三：系统环境变量
 set DEEPSEEK_API_KEY=***
@@ -320,9 +342,13 @@ python memory.py                     # 回填交易记忆
 
 ### Top 10 特征重要性
 
+测量于 2026-06-04 的模型。排名第 1 的因子已在 commit f44e254 (2026-09-18) 删除，
+当前管道改用 `Macro_State_Composite`（两者不等价），重训后该排名需重新测量。
+各因子的计算公式与替代关系见 `src/factor_formulas.py`，也可在 Dashboard「因子实验室 → 因子分析」点击柱子查看。
+
 | 排名 | 特征 | 重要性 | 类型 |
 |:--|:--|:--|:--|
-| 1 | Macro_Surprise_Composite | 81.0 | 宏观 |
+| 1 | ~~Macro_Surprise_Composite~~ | 81.0 | 宏观 (已删除) |
 | 2 | CN_US_10Y_Spread | 51.0 | 宏观 |
 | 3 | Basis_ZScore_20 | 39.0 | 基差 |
 | 4 | Short_Momentum_5D | 38.0 | 动量 |
@@ -346,7 +372,7 @@ python memory.py                     # 回填交易记忆
 | 技术 | 4 | MACD_Hist, RSI, BB_Position |
 | 市场状态 | 4 | Market_Regime, Is_High_Vol, Trend_Consistency |
 | 基差 | 3 | Basis_ZScore_20, Basis_ZScore_10, Basis_Trend |
-| 宏观 | 14 | CN_US_10Y_Spread, PMI_ZScore, M2_Surprise, YC_* |
+| 宏观 | 14 | CN_US_10Y_Spread, PMI_State_ZScore, M2_State_ZScore, YC_* |
 | 增强因子 | 35 | OI_Growth_5D/20D, Vol_Breakout, ADX, Spread_Stress, Vol_of_Vol |
 | **CNN嵌入** | **64** | **CNN_Emb_00 ~ CNN_Emb_63 (时序CNN瓶颈输出)** |
 

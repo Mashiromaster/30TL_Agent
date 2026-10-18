@@ -39,12 +39,24 @@ def prepare_data(df, prediction_horizon=30):
     df['Target_Ret'] = (df['future_close'] / df['next_close'] - 1) * 100
     
     # 精选特征: 基于V1重要性分析，保留Top重要性特征
+    #
+    # 宏观部分在 f44e254「harden point-in-time factor pipeline」后改名：
+    # 旧名已不再被任何代码计算，只存在于该提交之前生成的 df_factors.pkl 里。
+    # 保留旧名会让重新构建的因子集静默少掉这些特征（见下方 available 过滤），
+    # 所以这里改用当前管道实际产出的因子名。替代关系见 src/factor_formulas.py。
     selected_features = [
         # 宏观 (这些是V1中最重要的)
-        'Macro_Surprise_Composite', 'CN_US_10Y_Spread', 'CN_US_10Y_Spread_Z',
-        'YC_Slope_30Y_10Y', 'YC_Momentum_5D', 'PMI_ZScore',
-        'YC_Curvature', 'YC_Slope_10Y_1Y', 'YC_Level_Shift', 'YC_Level_ZScore',
-        'M2_Surprise', 'CPI_Momentum', 'Risk_On_Off',
+        'Macro_State_Composite',        # 旧 Macro_Surprise_Composite
+        'CN_US_10Y_Spread', 'CN_US_10Y_Spread_Z',
+        'YC_Slope_30Y_10Y', 'YC_Momentum_5D',
+        'PMI_State_ZScore',             # 旧 PMI_ZScore
+        'PMI_Change_3M',
+        'YC_Curvature', 'YC_Slope_10Y_1Y',
+        'YC_Level_10Y',                 # 旧 YC_Level_Shift
+        'YC_Level_ZScore',
+        'M2_State_ZScore',              # 旧 M2_Surprise
+        'CPI_Acceleration_3M',          # 旧 CPI_Momentum
+        'Risk_On_Off',
         
         # 基差
         'Basis_ZScore_20', 'Basis_ZScore_10', 'Basis_Trend',
@@ -77,7 +89,13 @@ def prepare_data(df, prediction_horizon=30):
     ]
     
     available = [f for f in selected_features if f in df.columns]
-    
+    missing = [f for f in selected_features if f not in df.columns]
+    if missing:
+        # A silently shorter feature set changes the model without any error,
+        # so name what is absent instead of training on whatever survived.
+        print(f"  [warn] {len(missing)}/{len(selected_features)} 个精选特征不在因子数据中，"
+              f"本次训练不含: {', '.join(missing)}")
+
     df_model = df.dropna(subset=['Target_Ret']).copy()
     for col in available:
         if col in df_model.columns:
