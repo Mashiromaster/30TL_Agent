@@ -54,3 +54,11 @@ models/*.backup
 # Environment
 .env
 .env.local
+
+# Isolated local research snapshots and trained candidates (large binaries)
+/artifacts/factor_candidates/*/*.pkl
+/artifacts/experiments/*/*.pkl
+
+# Local licensed minute imports and immutable data snapshots
+/data/minute_batches/
+/artifacts/minute_snapshots/
