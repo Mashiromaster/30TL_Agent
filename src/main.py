@@ -6,6 +6,7 @@ import sys
 import json
 import argparse
 import time
+from contextlib import redirect_stdout
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -19,8 +20,8 @@ def main():
     parser = argparse.ArgumentParser(description='TL国债期货量化策略系统')
     parser.add_argument(
         '--mode', type=str, default='train',
-        choices=['train', 'inference', 'iterate', 'evolve', 'moe', 'research', 'monitor', 'rollback'],
-        help='运行模式: train=训练+门禁+版本发布, inference=统一策略实时信号, research=Research Agent闭环, monitor=舆情监控, rollback=切回历史release'
+        choices=['train', 'inference', 'iterate', 'evolve', 'moe', 'research', 'hybrid', 'readiness', 'prepare-factors', 'train-candidate', 'monitor', 'rollback'],
+        help='运行模式: train=训练+门禁+版本发布, inference=统一策略实时信号, research=Research Agent闭环, hybrid=受限混合决策研究, monitor=舆情监控, rollback=切回历史release'
     )
     parser.add_argument(
         '--strategy', default=DEFAULT_STRATEGY_ID,
@@ -32,16 +33,19 @@ def main():
         help='monitor模式持续轮询；默认只运行一次',
     )
     parser.add_argument(
-        '--interval-seconds', type=int, default=600,
-        help='monitor --watch轮询间隔，最小30秒',
+        '--interval-seconds', type=int, default=None,
+        help='monitor --watch轮询间隔，最小30秒；默认读取监控配置',
     )
+    parser.add_argument('--monitor-config', help='监控配置JSON路径，默认config/bond_monitor.json')
+    parser.add_argument('--notify', action='store_true',
+                        help='monitor模式显式允许发送已配置的外部通知；默认只生成本地记录')
     parser.add_argument(
         '--no-sentiment', action='store_true',
         help='research模式跳过舆情抓取',
     )
     parser.add_argument(
         '--no-llm', action='store_true',
-        help='research模式跳过LLM研究推理',
+        help='research跳过LLM研究推理；monitor禁用可选语义分析和Jev',
     )
     parser.add_argument(
         '--rebuild-factors', action='store_true',
@@ -51,7 +55,28 @@ def main():
         '--release-id',
         help='rollback模式要重新激活的不可变release ID',
     )
+    parser.add_argument('--network-mode', choices=['offline', 'cache', 'online'], default='offline',
+                        help='hybrid模型网络权限；默认offline，online显式允许向配置服务发送受限研究快照')
+    parser.add_argument('--question', default='宏观与微观证据是否支持当前TL策略？', help='hybrid研究问题')
+    parser.add_argument('--as-of', help='hybrid时点截止时间；不使用此时点之后的行情或证据')
+    parser.add_argument('--no-persist', action='store_true', help='hybrid不保存运行审计（在线Jev仍可写其模型缓存）')
+    parser.add_argument('--factor-path', help='hybrid/readiness/train-candidate显式选择独立因子候选；不覆盖生产因子')
+    parser.add_argument('--minute-snapshot', help='prepare-factors显式选择隔离分钟快照ID；不替换原始行情')
     args = parser.parse_args()
+    preparation_modes = {'readiness', 'prepare-factors', 'train-candidate'}
+    json_modes = preparation_modes | {'hybrid'}
+    if args.minute_snapshot and args.mode != 'prepare-factors':
+        parser.error('--minute-snapshot only applies to prepare-factors')
+    if args.factor_path and args.mode not in {'hybrid', 'readiness', 'train-candidate'}:
+        parser.error('--factor-path only applies to hybrid/readiness/train-candidate')
+    if args.mode in preparation_modes and (args.network_mode != 'offline' or args.rebuild_factors or args.notify or args.watch):
+        parser.error('preparation modes are explicit local-only actions; conflicting network/rebuild/notify/watch flags')
+    if args.mode in {'prepare-factors', 'train-candidate'} and args.no_persist:
+        parser.error('candidate preparation writes isolated artifacts; --no-persist is not supported')
+    if args.mode == 'hybrid' and args.no_llm and args.network_mode != 'offline':
+        parser.error('hybrid --no-llm requires --network-mode offline')
+    if args.mode == 'hybrid' and args.rebuild_factors:
+        parser.error('hybrid does not rebuild factors; use the explicit factor pipeline separately')
 
     TICK_SUBDIR = "data/tick"
 
@@ -59,11 +84,28 @@ def main():
         print(f"[ERROR] 目录不存在: {BASE_DIR}")
         return
 
-    print("\n" + "#" * 60)
-    print(f"#  TL期货投机策略 — 模式: {args.mode.upper()}" + " " * 22 + "#")
-    print("#" * 60)
-
-    if args.mode == 'train':
+    # Hybrid stdout is one machine-readable report; diagnostics use stderr.
+    banner_stream = sys.stderr if args.mode in json_modes else sys.stdout
+    print("\n" + "#" * 60, file=banner_stream)
+    print(f"#  TL期货投机策略 — 模式: {args.mode.upper()}" + " " * 22 + "#", file=banner_stream)
+    print("#" * 60, file=banner_stream)
+    if args.mode in preparation_modes:
+        from research_readiness import inspect_research_readiness
+        with redirect_stdout(sys.stderr):
+            if args.mode == 'prepare-factors':
+                from factor_candidates import build_local_factor_candidate
+                report = build_local_factor_candidate(BASE_DIR, **({'minute_snapshot_id': args.minute_snapshot} if args.minute_snapshot else {}))
+            else:
+                readiness = inspect_research_readiness(BASE_DIR, factor_path=args.factor_path, strategy_id=args.strategy)
+                if args.mode == 'readiness':
+                    report = readiness
+                elif readiness['training']['eligible']:
+                    from LightGBM_model import train_candidate
+                    report = train_candidate(BASE_DIR, factor_path=args.factor_path, strategy_id=args.strategy)
+                else:
+                    report = {'status': 'blocked', 'published': False, 'reason': 'training_prerequisites_not_met', 'readiness': readiness}
+        print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
+    elif args.mode == 'train':
         run_train(BASE_DIR, TICK_SUBDIR, strategy_id=args.strategy)
     elif args.mode == 'inference':
         run_inference_mode(BASE_DIR, strategy_id=args.strategy)
@@ -81,11 +123,23 @@ def main():
             use_llm=not args.no_llm,
             monitor_sentiment=not args.no_sentiment,
         )
+    elif args.mode == 'hybrid':
+        from hybrid_runtime import HybridConfig
+        from research_agent import ResearchAgent
+
+        report = ResearchAgent(BASE_DIR, strategy_id=args.strategy).run_hybrid_cycle(
+            config=HybridConfig(network_mode=args.network_mode), question=args.question,
+            as_of=args.as_of, persist=not args.no_persist, factor_path=args.factor_path,
+        )
+        print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
     elif args.mode == 'monitor':
         if not run_monitor_mode(
             BASE_DIR,
             watch=args.watch,
             interval_seconds=args.interval_seconds,
+            config_path=args.monitor_config,
+            allow_notifications=args.notify,
+            use_llm=not args.no_llm,
         ):
             sys.exit(1)
     elif args.mode == 'rollback':
@@ -194,18 +248,33 @@ def run_monitor_mode(
     base_dir,
     *,
     watch=False,
-    interval_seconds=600,
+    interval_seconds=None,
     monitor=None,
+    config_path=None,
+    allow_notifications=False,
+    use_llm=True,
     sleep_fn=None,
     max_iterations=None,
 ):
     """Run the read-only sentiment monitor once or as a bounded polling loop."""
-    interval = max(30, int(interval_seconds))
     if monitor is None:
+        from dataclasses import replace
+        from bond_monitor_config import MonitorConfig
         from jev_client import JevClient
         from sentiment_monitor import SentimentMonitor
 
-        monitor = SentimentMonitor(base_dir, jev_adapter=JevClient(base_dir))
+        try:
+            config = MonitorConfig.load(base_dir, config_path)
+            if not use_llm:
+                config = replace(config, semantic_mode="off")
+            monitor = SentimentMonitor(base_dir, config=config,
+                jev_adapter=JevClient(base_dir) if use_llm else None,
+                allow_notifications=allow_notifications)
+        except Exception as exc:
+            print(f"[Monitor CONFIG ERROR] {redact_sensitive_text(exc)}")
+            return False
+    configured_interval = getattr(getattr(monitor, "config", None), "interval_seconds", 600)
+    interval = max(30, int(interval_seconds if interval_seconds is not None else configured_interval))
     sleep_fn = sleep_fn or time.sleep
     attempts = 0
     last_success = False

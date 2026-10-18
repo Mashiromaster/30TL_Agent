@@ -81,3 +81,17 @@ def test_watch_backs_off_after_partial_failure(tmp_path):
 
     assert result is True
     assert sleeps == [30]
+
+
+def test_monitor_respects_configured_polling_interval(tmp_path):
+    monitor = _Monitor([1, 1])
+    monitor.config = SimpleNamespace(interval_seconds=123)
+    sleeps = []
+    assert run_monitor_mode(tmp_path, monitor=monitor, watch=True,
+                            sleep_fn=sleeps.append, max_iterations=2)
+    assert sleeps == [123]
+
+
+def test_bad_monitor_config_fails_before_network_calls(tmp_path, capsys):
+    assert run_monitor_mode(tmp_path, config_path="missing.json") is False
+    assert "CONFIG ERROR" in capsys.readouterr().out

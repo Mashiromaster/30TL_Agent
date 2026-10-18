@@ -15,9 +15,9 @@ df_factors.pkl
 
 NewsProvider(cursor)
   -> SQLite Document + cursor 事务
-  -> TLRuleAnalyzer + 可选 Jev
+  -> 事实状态/数值证据规则 + 可选语义分析/Jev
   -> EventAssessment / Alert / SourceHealth
-  -> ResearchAgent 研究证据
+  -> ResearchAgent 研究证据 / 订阅通知发件箱 / Markdown简报
   -X-> 方向 / 仓位 / 订单
 
 训练
@@ -36,7 +36,7 @@ NewsProvider(cursor)
 
 ```bash
 # 舆情抓取一次
-.venv/bin/python src/main.py --mode monitor
+.venv/bin/python src/main.py --mode monitor --no-llm
 
 # 每 10 分钟持续监控；失败采用有上限的指数退避
 .venv/bin/python src/main.py --mode monitor --watch --interval-seconds 600
@@ -68,10 +68,14 @@ NewsProvider(cursor)
 |---|---|---|
 | `data/intelligence/events.sqlite` | 原文、独立 source cursor、结构化评估、告警、源健康、运行记录 | 权威事件账本 |
 | `outputs/intelligence/<run_id>.json` | 单次监控摘要 | 可重建报告 |
+| `outputs/intelligence/<run_id>.md` | 最近事件的订阅证据简报 | 研究辅助 |
+| `config/bond_monitor.json` | 数据源、主题/发行人/关键词订阅、模型预算与通知配置 | 不存储密钥 |
 | `outputs/research_cycle_<run_id>.json` | 一次研究闭环的因子、策略、模型与舆情 provenance | 审计报告 |
 | `outputs/fusion_signal.json` | 最新研究层影子建议 | 非交易指令 |
 
-默认 provider 使用 AkShare 的东方财富全球 7×24 资讯流，再按 TL、利率、流动性和债券关键词过滤；不再误用带默认股票代码的个股新闻接口。它仍是可替换原型，不具备已验证的覆盖率、授权状态或延迟 SLA。游标由 `published_at + source_document_id` 组成，同时间戳消息会被包容性重读并由文档主键去重。
+默认数据源为东方财富全球7×24资讯流、央行新闻、央行公开市场公告和财政部债券公告。东方财富重读有界近期窗口捕捉迟到/修订内容，官方源优先抓取未见文章并轮换复查当前列表，单源每轮最多10篇正文；不具备全网覆盖、历史完整补采或交易级延迟 SLA。官方公告抓取复用 RAG 的安全 HTTP 边界。
+
+现在支持多个主题/发行人订阅、否认/传闻/预测的保守分类、同链接不可变修订、数值与原文证据、可选语义解释、Markdown简报和持久化通知队列。外发默认关闭：飞书需要配置环境凭据、`notification_channel=feishu`，并显式传入 `--notify`；默认 cron/ResearchAgent 不外发。规则评分不是校准概率，官方出处不等于独立事实核查。完整配置、信用债例子及限制见 [债券舆情监控指南](bond_sentiment_agent.md)。
 
 `source_stale=true` 表示本次传输/抓取失败；`content_stale=true` 表示虽然接口可访问，但最后一篇有效文档（从未收到文档时则从第一次成功空抓取开始计时）已超过 72 小时。内容基线独立持久化，连续成功空轮询不会刷新它。二者都与“成功抓取且暂时没有新事件”区分，失败或空结果不会清空最后一份有效文档和游标。单源每轮最多接收 200 篇、2 MiB 正文批量，并限制标题、正文、URL、metadata 和待分析队列；超限会增加 `documents_dropped`，本轮状态为 `partial_failure`，不会伪装成成功。
 
@@ -169,4 +173,4 @@ Research Agent 和舆情 monitor 的构造接口不接受 broker 或 release wri
 PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m pytest -q -p no:cacheprovider
 ```
 
-2026-09-23 离线结果：`201 passed, 2 warnings in 1.62s`。四个关键新增模块（`strategy_runtime`、`model_release`、`intelligence_events`、`sentiment_monitor`）合计 branch coverage 为 `82%`。两条 warning 来自 AkShare 间接依赖 `py_mini_racer` 在 Python 3.14 下的弃用提示。测试未访问真实新闻、未训练模型、未连接行情 watch 或券商。
+2026-09-23 本轮离线结果：`243 passed, 2 warnings`，包含新增监控功能及 Streamlit 交互测试。两条 warning 来自 AkShare 间接依赖 `py_mini_racer` 在 Python 3.14 下的弃用提示。测试未访问真实新闻、未训练模型、未连接行情 watch 或券商。另做了三处官方源各一篇正文的只读实网验证，未写生产事件库、未调用在线模型、未外发消息；见监控指南。上一轮 P0/P1 的201项测试及82%关键模块覆盖率是历史基线，不作为本轮覆盖率声明。

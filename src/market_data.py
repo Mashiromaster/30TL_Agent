@@ -7,7 +7,9 @@ Minute responses contain a short rolling window; daily charts should request
 """
 
 from dataclasses import dataclass
+import hashlib
 import json
+from numbers import Number
 import os
 from pathlib import Path
 import re
@@ -32,6 +34,8 @@ _PRICE_COLUMNS = ["open", "high", "low", "close"]
 _BAR_COLUMNS = ["date", "trade_dt", "ticker", "source_symbol", "series_kind",
                 "open", "high", "low", "close", "volume", "oi", "time", "source"]
 _SCHEMA_VERSION = 1
+_STRICT_RESPONSE_BYTES = 2 * 1024 * 1024
+_STRICT_MAX_ROWS = 5000
 
 
 def _series_kind(symbol: str) -> str:
@@ -74,6 +78,8 @@ def contract_candidates(variety: str, as_of=None) -> list[str]:
 
 def _dates(values) -> pd.Series:
     try:
+        if values.map(lambda value: isinstance(value, (Number, np.bool_))).any():
+            raise ValueError("numeric or boolean timestamps have no declared unit")
         dates = pd.to_datetime(values, errors="raise")
         if dates.isna().any():
             raise ValueError("Missing date")
@@ -96,8 +102,8 @@ def _validate_prices(frame: pd.DataFrame) -> pd.DataFrame:
     numeric = [*_PRICE_COLUMNS, "volume"] + (["oi"] if "oi" in result else [])
     for column in numeric:
         try:
-            if result[column].map(lambda value: isinstance(value, (bool, np.bool_))).any():
-                raise ValueError("boolean is not a price or quantity")
+            if result[column].map(lambda value: isinstance(value, (bool, np.bool_, complex, np.complexfloating))).any():
+                raise ValueError("boolean or complex values are not real prices or quantities")
             result[column] = pd.to_numeric(result[column], errors="raise").astype(float)
         except (TypeError, ValueError) as exc:
             raise ValueError(f"Invalid {column}: {exc}") from exc
@@ -113,7 +119,7 @@ def _validate_prices(frame: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
-def _normalize_bars(frame: pd.DataFrame, symbol: str, frequency: str) -> pd.DataFrame:
+def _normalize_bars(frame: pd.DataFrame, symbol: str, frequency: str, *, reject_duplicates=False) -> pd.DataFrame:
     """Validate a self-describing provider/cache frame; never repair identity."""
     if not isinstance(frame, pd.DataFrame):
         raise ValueError("Provider must return a DataFrame")
@@ -129,41 +135,117 @@ def _normalize_bars(frame: pd.DataFrame, symbol: str, frequency: str) -> pd.Data
         raise ValueError("Daily series contains intraday timestamps")
     frame["trade_dt"] = frame["date"].dt.normalize()
     frame["time"] = frame["date"].dt.strftime("%H:%M")
+    if reject_duplicates and frame.duplicated(subset=["date", "ticker"], keep=False).any():
+        raise ValueError("Duplicate provider bars are not accepted in strict captures")
     frame = frame.drop_duplicates(subset=["date", "ticker"], keep="last")
     return frame.sort_values("date", kind="stable").reset_index(drop=True)[_BAR_COLUMNS]
 
 
-def fetch_bars(symbol: str, frequency: str = "1min", timeout: float = 15, session=None) -> pd.DataFrame:
+def _strict_body(response) -> bytes:
+    """Read a bounded decoded HTTP entity and always release the connection."""
+    try:
+        response.raise_for_status()
+        if not 200 <= response.status_code < 300:
+            raise ValueError(f"Strict capture rejected HTTP status {response.status_code}; redirects are disabled")
+        declared = response.headers.get("Content-Length")
+        if declared is not None:
+            if not isinstance(declared, str) or not re.fullmatch(r"\d+", declared):
+                raise ValueError("Invalid provider content length")
+            if int(declared) > _STRICT_RESPONSE_BYTES:
+                raise ValueError("Provider response size exceeds 2 MiB limit")
+        body = bytearray()
+        for chunk in response.iter_content(chunk_size=65536):
+            if not isinstance(chunk, bytes):
+                raise ValueError("Invalid provider response byte stream")
+            if len(body) + len(chunk) > _STRICT_RESPONSE_BYTES:
+                raise ValueError("Provider response size exceeds 2 MiB limit")
+            body.extend(chunk)
+        return bytes(body)
+    finally:
+        response.close()
+
+
+def _unique_json_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("Duplicate provider JSON field")
+        result[key] = value
+    return result
+
+
+def _validate_strict_payload(payload, symbol):
+    if len(payload) > _STRICT_MAX_ROWS:
+        raise ValueError("Provider response exceeds 5000 row limit")
+    required = {"d", "o", "h", "l", "c", "v", "p"}
+    identity = {"ticker": symbol, "source_symbol": symbol, "symbol": symbol,
+                "series_kind": _series_kind(symbol), "source": "sina"}
+    for row in payload:
+        if not required.issubset(row) or set(row) - required - identity.keys():
+            raise ValueError("Unexpected strict provider schema; date, OHLC, volume and open interest fields required")
+        for key, expected in identity.items():
+            if key in row and row[key] != expected:
+                raise ValueError(f"Raw provider identity mismatch: {key}")
+
+
+def fetch_bars(symbol: str, frequency: str = "1min", timeout: float = 15, session=None,
+               *, strict: bool = False) -> pd.DataFrame:
     """Fetch one explicitly identified series with bounded HTTP I/O.
 
     Source: AKShare's documented Sina InnerFuturesNewService endpoints. JSONP
     is parsed as JSON data only; no vendor script is ever evaluated. Invalid or
     empty payloads raise, so callers cannot mistake a failure for fresh data.
+    ``strict=True`` is a one-request minute capture, not historical backfill:
+    it rejects redirects, oversized payloads, unknown fields and duplicates,
+    and records response provenance without certifying bar-label semantics.
     """
     _validate_request(symbol, frequency)
     if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or not np.isfinite(timeout) or timeout <= 0:
         raise ValueError("timeout must be a finite positive number")
+    if not isinstance(strict, bool):
+        raise ValueError("strict must be a boolean")
+    if strict and (frequency != "1min" or timeout > 30):
+        raise ValueError("Strict captures require frequency '1min' and timeout <= 30 seconds")
     client = requests if session is None else session
     period = "1" if frequency == "1min" else pd.Timestamp.now(tz="Asia/Shanghai").strftime("%Y_%m_%d")
     response = client.get(_BASE_URL + _ENDPOINTS[frequency],
-                          params={"symbol": symbol, "type": period}, timeout=timeout)
-    response.raise_for_status()
-    match = re.search(r"=\s*\((.*)\)\s*;?\s*$", response.text, re.DOTALL)
+                          params={"symbol": symbol, "type": period}, timeout=timeout,
+                          **({"stream": True, "allow_redirects": False} if strict else {}))
+    if strict:
+        body = _strict_body(response)
+        try:
+            text = body.decode("utf-8-sig")
+        except UnicodeDecodeError as exc:
+            raise ValueError("Invalid provider response encoding") from exc
+    else:
+        response.raise_for_status()
+        text = response.text
+    match = re.search(r"=\s*\((.*)\)\s*;?\s*$", text, re.DOTALL)
     if match is None:
         raise ValueError(f"{symbol} {frequency}: invalid Sina JSONP response")
     try:
-        payload = json.loads(match.group(1))
+        payload = json.loads(match.group(1), **({"object_pairs_hook": _unique_json_object} if strict else {}))
     except (TypeError, ValueError) as exc:
         raise ValueError(f"{symbol} {frequency}: invalid Sina JSON payload") from exc
     if not isinstance(payload, list) or not payload or not all(isinstance(row, dict) for row in payload):
         raise ValueError(f"{symbol} {frequency}: no bars or unexpected provider schema")
+    if strict:
+        _validate_strict_payload(payload, symbol)
     frame = pd.DataFrame(payload).rename(columns={
         "d": "date", "o": "open", "h": "high", "l": "low", "c": "close", "v": "volume", "p": "oi",
     })
     frame["ticker"] = frame["source_symbol"] = symbol
     frame["series_kind"] = _series_kind(symbol)
     frame["source"] = "sina"
-    return _normalize_bars(frame, symbol, frequency)
+    frame = _normalize_bars(frame, symbol, frequency, reject_duplicates=strict)
+    if strict:
+        frame.attrs["source_capture"] = {
+            "provider": "sina", "endpoint_id": "sina_futures_1min", "symbol": symbol,
+            "frequency": frequency, "response_sha256": hashlib.sha256(body).hexdigest(),
+            "fetched_at": pd.Timestamp.now(tz="UTC").isoformat(), "request_count": 1,
+            "bar_label": "unverified",
+        }
+    return frame
 
 
 def resample_ohlc(frame: pd.DataFrame, freq: str) -> pd.DataFrame:

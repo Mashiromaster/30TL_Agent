@@ -1,5 +1,6 @@
 """Market bars must preserve identity, price extrema, and cache provenance."""
 
+import hashlib
 import json
 from unittest.mock import Mock
 
@@ -305,3 +306,152 @@ def test_default_fetcher_uses_requests_with_timeout(tmp_path, monkeypatch):
     result = load_quote_series(tmp_path, "TL0", "1min")
     assert not result.bars.empty and result.error is None
     assert session.get.call_args.kwargs["timeout"] == 15
+
+
+def strict_session(rows=None, *, body=None, status=200, headers=None, chunks=None):
+    """Streaming response fixture: strict tests never contact a provider."""
+    raw = body if body is not None else ("=(" + json.dumps(rows) + ");").encode()
+    response = Mock()
+    response.status_code = status
+    response.headers = headers or {}
+    response.iter_content.return_value = chunks if chunks is not None else [raw]
+    session = Mock()
+    session.get.return_value = response
+    return session, raw
+
+
+def test_strict_capture_is_bounded_single_request_and_preserves_provenance():
+    session, raw = strict_session([quote_row()])
+    before = pd.Timestamp.now(tz="UTC")
+    frame = fetch_bars("TL2612", strict=True, timeout=30, session=session)
+    after = pd.Timestamp.now(tz="UTC")
+    assert len(frame) == 1 and frame.ticker.tolist() == ["TL2612"]
+    args, kwargs = session.get.call_args
+    assert args[0].endswith("getFewMinLine")
+    assert kwargs == {"params": {"symbol": "TL2612", "type": "1"},
+                      "timeout": 30, "stream": True, "allow_redirects": False}
+    session.get.assert_called_once()
+    session.get.return_value.close.assert_called_once()
+    capture = frame.attrs["source_capture"]
+    assert capture == {"provider": "sina", "endpoint_id": "sina_futures_1min",
+                       "symbol": "TL2612", "frequency": "1min",
+                       "response_sha256": hashlib.sha256(raw).hexdigest(),
+                       "fetched_at": capture["fetched_at"], "request_count": 1,
+                       "bar_label": "unverified"}
+    assert before <= pd.Timestamp(capture["fetched_at"]) <= after
+
+
+@pytest.mark.parametrize("kwargs", [{"frequency": "1D"}, {"timeout": 30.01}, {"strict": "yes"}])
+def test_strict_invalid_request_never_fetches(kwargs):
+    session = Mock()
+    with pytest.raises(ValueError):
+        fetch_bars("TL2612", session=session, **({"strict": True} | kwargs))
+    session.get.assert_not_called()
+
+
+@pytest.mark.parametrize("status", [301, 302, 307, 403, 500])
+def test_strict_never_follows_redirects_retries_or_reads_error_bodies(status):
+    session, _ = strict_session([quote_row()], status=status)
+    with pytest.raises((ValueError, requests.HTTPError)):
+        fetch_bars("TL2612", strict=True, session=session)
+    session.get.assert_called_once()
+    session.get.return_value.iter_content.assert_not_called()
+    session.get.return_value.close.assert_called_once()
+
+
+@pytest.mark.parametrize("headers,chunks", [
+    ({"Content-Length": str(2 * 1024 * 1024 + 1)}, []),
+    ({"Content-Length": "invalid"}, []),
+    ({"Content-Length": "-1"}, []),
+    ({}, [b"x" * (2 * 1024 * 1024), b"x"]),
+    ({"Content-Length": "10"}, [b"x" * (2 * 1024 * 1024 + 1)]),
+])
+def test_strict_caps_declared_and_actual_response_bytes(headers, chunks):
+    session, _ = strict_session([], headers=headers, chunks=chunks)
+    with pytest.raises(ValueError, match="size|length|limit"):
+        fetch_bars("TL2612", strict=True, session=session)
+    session.get.return_value.close.assert_called_once()
+
+
+def test_strict_response_closes_after_stream_error():
+    session, _ = strict_session([])
+    session.get.return_value.iter_content.side_effect = requests.Timeout("stream timeout")
+    with pytest.raises(requests.Timeout):
+        fetch_bars("TL2612", strict=True, session=session)
+    session.get.assert_called_once()
+    session.get.return_value.close.assert_called_once()
+
+
+def test_strict_rejects_nonbyte_stream_and_accepts_empty_chunks():
+    session, raw = strict_session([quote_row()])
+    session.get.return_value.iter_content.return_value = [b"", raw[:7], b"", raw[7:]]
+    assert len(fetch_bars("TL2612", strict=True, session=session)) == 1
+    session, _ = strict_session([], chunks=["not bytes"])
+    with pytest.raises(ValueError, match="byte stream"):
+        fetch_bars("TL2612", strict=True, session=session)
+    session.get.return_value.close.assert_called_once()
+
+
+def test_strict_closes_response_when_raise_for_status_raises():
+    session, _ = strict_session([], status=403)
+    session.get.return_value.raise_for_status.side_effect = requests.HTTPError("403 Forbidden")
+    with pytest.raises(requests.HTTPError):
+        fetch_bars("TL2612", strict=True, session=session)
+    session.get.assert_called_once()
+    session.get.return_value.iter_content.assert_not_called()
+    session.get.return_value.close.assert_called_once()
+
+
+@pytest.mark.parametrize("changes", [{}, {"c": "116.2"}])
+def test_strict_rejects_identical_and_conflicting_duplicate_bars(changes):
+    session, _ = strict_session([quote_row(), quote_row(**changes)])
+    with pytest.raises(ValueError, match="duplicate|Duplicate"):
+        fetch_bars("TL2612", strict=True, session=session)
+
+
+@pytest.mark.parametrize("changes", [
+    {"ticker": "TL0"}, {"source_symbol": "TL0"}, {"source": "other"},
+    {"series_kind": "continuous"}, {"symbol": "TL0"}, {"date": "2026-09-29"},
+    {"unexpected": "ignored?"}, {"v": True}, {"p": False},
+    {"d": 1790725800000000000}, {"d": 1790725800.0}, {"d": True},
+])
+def test_strict_rejects_raw_identity_schema_and_type_anomalies(changes):
+    session, _ = strict_session([quote_row() | changes])
+    with pytest.raises(ValueError):
+        fetch_bars("TL2612", strict=True, session=session)
+
+
+def test_strict_accepts_matching_identity_but_requires_open_interest():
+    session, _ = strict_session([quote_row(ticker="TL2612", source_symbol="TL2612",
+                                         series_kind="contract", source="sina", symbol="TL2612")])
+    assert fetch_bars("TL2612", strict=True, session=session).ticker.tolist() == ["TL2612"]
+    row = quote_row()
+    del row["p"]
+    session, _ = strict_session([row])
+    with pytest.raises(ValueError, match="oi|interest|schema|fields"):
+        fetch_bars("TL2612", strict=True, session=session)
+
+
+@pytest.mark.parametrize("body", [
+    b'=( [{"d":"2026-09-30 09:31", "d":"2026-09-30 09:32"}] );',
+    b"=(\xff);", b"<html>not JSONP</html>", b"=({invalid});",
+])
+def test_strict_rejects_duplicate_json_keys_encoding_and_malformed_payload(body):
+    session, _ = strict_session(body=body)
+    with pytest.raises(ValueError):
+        fetch_bars("TL2612", strict=True, session=session)
+    session.get.return_value.close.assert_called_once()
+
+
+def test_strict_rejects_oversized_row_count_before_normalizing():
+    session, _ = strict_session([quote_row()] * 5001)
+    with pytest.raises(ValueError, match="5000|row|limit"):
+        fetch_bars("TL2612", strict=True, session=session)
+
+
+@pytest.mark.parametrize("value", [1 + 0j, 1 + 2j])
+def test_numeric_validation_never_discards_imaginary_components(value):
+    frame = bars()
+    frame["volume"] = value
+    with pytest.raises(ValueError, match="complex|real"):
+        resample_ohlc(frame, "1D")

@@ -19,8 +19,20 @@ from market_data import (
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def _load_snapshot(base_dir, symbol, frequency, refresh=True):
-    return load_quote_series(base_dir, symbol, frequency, refresh=refresh)
+def _load_cached_snapshot(base_dir, symbol, frequency):
+    return load_quote_series(base_dir, symbol, frequency, refresh=False)
+
+
+def _load_snapshot(base_dir, symbol, frequency, refresh=False):
+    """Navigation is local-only; an explicit refresh is never memoized."""
+    if not refresh:
+        return _load_cached_snapshot(base_dir, symbol, frequency)
+    try:
+        return load_quote_series(base_dir, symbol, frequency, refresh=True)
+    finally:
+        # A fetch may update the disk cache. Invalidate only this source key so
+        # the next local-only render cannot revive a pre-refresh empty/stale view.
+        _load_cached_snapshot.clear(base_dir, symbol, frequency)
 
 
 def minute_quality_warnings(minutes, daily):
@@ -121,15 +133,18 @@ def render_market_tab(ctx):
             st.error(f"请输入同品种季月合约代码（03/06/09/12），例如 {variety}2609。")
             return
         symbol = custom
+    frequency = "1D" if resolution == "1天" else "1min"
     controls = st.columns([3, 1])
     with controls[0]:
-        refresh = st.toggle("从接口获取最新快照", value=True, key="market_network")
+        allow_network = st.toggle("允许手动联网刷新", value=False, key="market_network")
     with controls[1]:
-        if st.button("刷新行情", key="market_refresh"):
-            _load_snapshot.clear()
+        requested = st.button("刷新行情", key="market_refresh", disabled=not allow_network)
+    refresh = bool(allow_network and requested)
+    st.caption("默认只读取本地缓存；切换页面、合约和图表筛选不会联网。开启许可后，点击刷新才会获取一次快照。")
+    if frequency == "1min":
+        st.caption("分钟刷新会分别请求所选合约的分钟行情与日线参考；许可本身不会发起请求。")
     if symbol.endswith("0"):
         st.info(f"{symbol} 是供应商主力连续序列，不是可下单的具体合约。换月价差不能直接视为持仓收益。")
-    frequency = "1D" if resolution == "1天" else "1min"
     with st.spinner(f"读取 {symbol} {resolution} 行情…"):
         snapshot = _load_snapshot(str(ctx.base_dir), symbol, frequency, refresh)
     if snapshot.error:
@@ -145,7 +160,7 @@ def render_market_tab(ctx):
         f"{data['date'].min()} ～ {data['date'].max()} | "
         f"缓存采集时间：{snapshot.fetched_at or '未知'}"
     )
-    st.caption("已返回范围只表示首末记录，不保证中间完整。页面交互或点击刷新时更新，接口结果缓存 60 秒，并非逐笔推送。")
+    st.caption("已返回范围只表示首末记录，不保证中间完整。联网仅在明确点击刷新时发生；本地缓存视图最多复用 60 秒，并非逐笔推送。")
     age = pd.Timestamp.now(tz="Asia/Shanghai").tz_localize(None).normalize() - pd.Timestamp(data["date"].max()).normalize()
     if age.days > 3:
         st.warning(f"末条行情距上海当前日期已有 {age.days} 天，可能休市、合约已到期或数据源滞后；请核实后使用。")

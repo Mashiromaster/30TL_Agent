@@ -253,6 +253,7 @@ def mine_genetic_factors(
     generations=15,
     max_new_factors=20,
     min_ic_threshold=0.01,
+    n_jobs=-1,
 ):
     """Fit on discovery train, select on validation, and return a frozen miner."""
     if target_col not in discovery_train or target_col not in validation:
@@ -266,6 +267,7 @@ def mine_genetic_factors(
         generations=generations,
         hall_of_fame=max(max_new_factors * 3, max_new_factors),
         n_components=max(max_new_factors * 2, max_new_factors),
+        n_jobs=n_jobs,
     )
     miner.fit(discovery_train[columns], discovery_train[target_col])
     miner.select(
