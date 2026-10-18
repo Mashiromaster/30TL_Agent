@@ -1,0 +1,6682 @@
+{
+  "config": {
+    "sources": [
+      "eastmoney_tl",
+      "pbc_news",
+      "pbc_omo",
+      "mof_bonds"
+    ],
+    "tasks": [
+      {
+        "id": "rates-liquidity",
+        "name": "利率债与货币政策",
+        "topics": [
+          "rates",
+          "liquidity",
+          "supply"
+        ],
+        "entities": [],
+        "keywords": [],
+        "exclude_keywords": [],
+        "min_severity": "medium",
+        "notify_unverified": false
+      },
+      {
+        "id": "credit-risk",
+        "name": "信用债风险",
+        "topics": [
+          "credit"
+        ],
+        "entities": [],
+        "keywords": [],
+        "exclude_keywords": [],
+        "min_severity": "medium",
+        "notify_unverified": false
+      }
+    ],
+    "interval_seconds": 600,
+    "alert_max_age_hours": 24,
+    "semantic_mode": "off",
+    "semantic_max_calls_per_run": 10,
+    "notification_channel": "local",
+    "webhook_env": "BOND_MONITOR_FEISHU_WEBHOOK",
+    "signing_secret_env": "BOND_MONITOR_FEISHU_SECRET"
+  },
+  "semantic_calls": 0,
+  "semantic_failures": 0,
+  "notification_counts": {
+    "sent": 0,
+    "failed": 0,
+    "local": 0,
+    "cancelled": 0,
+    "exhausted": 0
+  },
+  "deliveries": [],
+  "events": [
+    {
+      "document_id": "a4ae2999c316661219fabd7bd895db7b26401416",
+      "event_cluster_id": "a1b767276cc7eaeca47d13fa",
+      "event_type": "bond_supply",
+      "severity": "medium",
+      "policy_stance": "neutral",
+      "bond_impact": "neutral",
+      "confidence": 0.51,
+      "evidence": [
+        "关于2026年记账式附息（十六期）国债第三次续发行工作有关事宜的通知",
+        "财政部拟第三次续发行2026年记账式附息（十六期）国债",
+        "现就本次续发行工作有关事宜通知如下："
+      ],
+      "affected_assets": [
+        "CREDIT_BOND"
+      ],
+      "tenors": [
+        "10Y"
+      ],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 1.0,
+        "liquidity": 0.0,
+        "supply": 1.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:59+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 34,
+            "start": 0,
+            "status": "asserted",
+            "text": "关于2026年记账式附息（十六期）国债第三次续发行工作有关事宜的通知"
+          },
+          {
+            "end": 48,
+            "start": 35,
+            "status": "asserted",
+            "text": "财办债〔2026〕201号"
+          },
+          {
+            "end": 123,
+            "start": 49,
+            "status": "asserted",
+            "text": "记账式国债承销团成员，中央国债登记结算有限责任公司、中国证券登记结算有限责任公司、中国外汇交易中心、上海证券交易所、深圳证券交易所、北京证券交易所："
+          },
+          {
+            "end": 151,
+            "start": 124,
+            "status": "asserted",
+            "text": "财政部拟第三次续发行2026年记账式附息（十六期）国债"
+          },
+          {
+            "end": 177,
+            "start": 171,
+            "status": "asserted",
+            "text": "一、债券要素"
+          },
+          {
+            "end": 203,
+            "start": 184,
+            "status": "asserted",
+            "text": "本次续发行国债为10年期固定利率附息债"
+          },
+          {
+            "end": 245,
+            "start": 213,
+            "status": "asserted",
+            "text": "本次续发行国债竞争性招标面值总额900亿元，进行甲类成员追加投标"
+          },
+          {
+            "end": 254,
+            "start": 247,
+            "status": "asserted",
+            "text": "（三）票面利率"
+          },
+          {
+            "end": 285,
+            "start": 255,
+            "status": "asserted",
+            "text": "本次续发行国债票面利率与之前发行的同期国债相同，为1.66%"
+          },
+          {
+            "end": 296,
+            "start": 287,
+            "status": "asserted",
+            "text": "（四）本息兑付日期"
+          },
+          {
+            "end": 325,
+            "start": 297,
+            "status": "asserted",
+            "text": "本次续发行国债的起息日、兑付安排与之前发行的同期国债相同"
+          },
+          {
+            "end": 507,
+            "start": 481,
+            "status": "asserted",
+            "text": "通过财政部北京证券交易所政府债券发行系统进行招标发行"
+          },
+          {
+            "end": 742,
+            "start": 713,
+            "status": "asserted",
+            "text": "本次续发行国债发行手续费为各承销团成员承销面值的0.06%"
+          },
+          {
+            "end": 803,
+            "start": 754,
+            "status": "asserted",
+            "text": "本次续发行国债招标结束至2026年9月22日进行分销，9月24日起与之前发行的同期国债合并上市交易"
+          },
+          {
+            "end": 837,
+            "start": 810,
+            "status": "asserted",
+            "text": "本次发行应急投标书和债权托管应急申请书格式见附件1、2"
+          },
+          {
+            "end": 882,
+            "start": 839,
+            "status": "asserted",
+            "text": "除上述规定外，本次国债招标工作按《记账式国债招标发行规则》（财库〔2022〕4号）执行"
+          },
+          {
+            "end": 901,
+            "start": 884,
+            "status": "asserted",
+            "text": "附件：1.记账式国债发行应急投标书"
+          },
+          {
+            "end": 918,
+            "start": 902,
+            "status": "asserted",
+            "text": "2.记账式国债债权托管应急申请书"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "财政部"
+        ],
+        "evidence_url": "https://zwgls.mof.gov.cn/ywgg/202609/t20260915_3997437.htm",
+        "fact_status": "asserted",
+        "facts": [
+          {
+            "end": 7,
+            "start": 2,
+            "text": "2026年"
+          },
+          {
+            "end": 139,
+            "start": 134,
+            "text": "2026年"
+          },
+          {
+            "end": 196,
+            "start": 192,
+            "text": "10年期"
+          },
+          {
+            "end": 234,
+            "start": 229,
+            "text": "900亿元"
+          },
+          {
+            "end": 285,
+            "start": 280,
+            "text": "1.66%"
+          },
+          {
+            "end": 332,
+            "start": 327,
+            "text": "2026年"
+          },
+          {
+            "end": 381,
+            "start": 376,
+            "text": "2036年"
+          },
+          {
+            "end": 424,
+            "start": 419,
+            "text": "2026年"
+          },
+          {
+            "end": 599,
+            "start": 594,
+            "text": "2026年"
+          },
+          {
+            "end": 742,
+            "start": 737,
+            "text": "0.06%"
+          },
+          {
+            "end": 771,
+            "start": 766,
+            "text": "2026年"
+          },
+          {
+            "end": 931,
+            "start": 926,
+            "text": "2026年"
+          }
+        ],
+        "matched_keywords": [
+          "价格",
+          "兑付",
+          "发行"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "neutral",
+          "policy_stance": "neutral",
+          "severity": "medium"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity",
+          "credit-risk"
+        ],
+        "verification": "primary_source"
+      },
+      "assessment_id": "d59f3c21794fa663eab53b1e7b5d8473dbdf1e48",
+      "title": "关于2026年记账式附息（十六期）国债第三次续发行工作有关事宜的通知",
+      "url": "https://zwgls.mof.gov.cn/ywgg/202609/t20260915_3997437.htm",
+      "source_name": "mof_bonds",
+      "published_at": "2026-09-15T00:00:00+08:00",
+      "available_at": "2026-10-17T10:08:59+00:00",
+      "document_metadata": {
+        "list_url": "https://www.mof.gov.cn/gkml/bulinggonggao/tongzhitonggao/",
+        "publication_precision": "day",
+        "publisher": "mof.gov.cn"
+      },
+      "matched_task_ids": [
+        "rates-liquidity",
+        "credit-risk"
+      ]
+    },
+    {
+      "document_id": "46aa4cc252d360820f9a21a373695e4deb76ce02",
+      "event_cluster_id": "6f9b6f25b68f4d7fc53599c6",
+      "event_type": "bond_supply",
+      "severity": "medium",
+      "policy_stance": "unclear",
+      "bond_impact": "unclear",
+      "confidence": 0.4,
+      "evidence": [
+        "关于2026年记账式贴现（六十期）国债发行工作有关事宜的通知",
+        "财政部拟发行2026年记账式贴现（六十期）国债",
+        "现就本次发行工作有关事宜通知如下："
+      ],
+      "affected_assets": [
+        "CREDIT_BOND"
+      ],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 0.0,
+        "liquidity": 0.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:59+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 30,
+            "start": 0,
+            "status": "asserted",
+            "text": "关于2026年记账式贴现（六十期）国债发行工作有关事宜的通知"
+          },
+          {
+            "end": 44,
+            "start": 31,
+            "status": "asserted",
+            "text": "财办债〔2026〕198号"
+          },
+          {
+            "end": 111,
+            "start": 45,
+            "status": "asserted",
+            "text": "记账式国债承销团成员，中央国债登记结算有限责任公司、中国证券登记结算有限责任公司、中国外汇交易中心、上海证券交易所、深圳证券交易所："
+          },
+          {
+            "end": 135,
+            "start": 112,
+            "status": "conditional",
+            "text": "财政部拟发行2026年记账式贴现（六十期）国债"
+          },
+          {
+            "end": 160,
+            "start": 154,
+            "status": "asserted",
+            "text": "一、债券要素"
+          },
+          {
+            "end": 181,
+            "start": 167,
+            "status": "asserted",
+            "text": "本期国债为期限91天的贴现债"
+          },
+          {
+            "end": 220,
+            "start": 191,
+            "status": "asserted",
+            "text": "本期国债竞争性招标面值总额350亿元，进行甲类成员追加投标"
+          },
+          {
+            "end": 262,
+            "start": 230,
+            "status": "asserted",
+            "text": "本期国债发行价格通过竞争性招标确定，以低于票面金额的价格贴现发行"
+          },
+          {
+            "end": 273,
+            "start": 264,
+            "status": "asserted",
+            "text": "（四）本息兑付日期"
+          },
+          {
+            "end": 318,
+            "start": 274,
+            "status": "asserted",
+            "text": "本期国债自2026年9月17日开始计息，于2026年12月17日（节假日顺延）按面值偿还"
+          },
+          {
+            "end": 419,
+            "start": 400,
+            "status": "asserted",
+            "text": "通过财政部政府债券发行系统进行招标发行"
+          },
+          {
+            "end": 663,
+            "start": 629,
+            "status": "asserted",
+            "text": "本期国债招标结束至2026年9月17日进行分销，9月21日起上市交易"
+          },
+          {
+            "end": 697,
+            "start": 670,
+            "status": "asserted",
+            "text": "本次发行应急投标书和债权托管应急申请书格式见附件1、2"
+          },
+          {
+            "end": 742,
+            "start": 699,
+            "status": "asserted",
+            "text": "除上述规定外，本次国债招标工作按《记账式国债招标发行规则》（财库〔2022〕4号）执行"
+          },
+          {
+            "end": 761,
+            "start": 744,
+            "status": "asserted",
+            "text": "附件：1.记账式国债发行应急投标书"
+          },
+          {
+            "end": 778,
+            "start": 762,
+            "status": "asserted",
+            "text": "2.记账式国债债权托管应急申请书"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "财政部"
+        ],
+        "evidence_url": "https://zwgls.mof.gov.cn/ywgg/202609/t20260915_3997436.htm",
+        "fact_status": "conditional",
+        "facts": [
+          {
+            "end": 7,
+            "start": 2,
+            "text": "2026年"
+          },
+          {
+            "end": 123,
+            "start": 118,
+            "text": "2026年"
+          },
+          {
+            "end": 177,
+            "start": 174,
+            "text": "91天"
+          },
+          {
+            "end": 209,
+            "start": 204,
+            "text": "350亿元"
+          },
+          {
+            "end": 284,
+            "start": 279,
+            "text": "2026年"
+          },
+          {
+            "end": 300,
+            "start": 295,
+            "text": "2026年"
+          },
+          {
+            "end": 343,
+            "start": 338,
+            "text": "2026年"
+          },
+          {
+            "end": 505,
+            "start": 500,
+            "text": "2026年"
+          },
+          {
+            "end": 643,
+            "start": 638,
+            "text": "2026年"
+          },
+          {
+            "end": 791,
+            "start": 786,
+            "text": "2026年"
+          }
+        ],
+        "matched_keywords": [
+          "价格",
+          "兑付",
+          "发行"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "unclear",
+          "policy_stance": "unclear",
+          "severity": "medium"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity",
+          "credit-risk"
+        ],
+        "verification": "primary_source"
+      },
+      "assessment_id": "0b97b2841980d26f77263102eb7095e6dd33b5be",
+      "title": "关于2026年记账式贴现（六十期）国债发行工作有关事宜的通知",
+      "url": "https://zwgls.mof.gov.cn/ywgg/202609/t20260915_3997436.htm",
+      "source_name": "mof_bonds",
+      "published_at": "2026-09-15T00:00:00+08:00",
+      "available_at": "2026-10-17T10:08:59+00:00",
+      "document_metadata": {
+        "list_url": "https://www.mof.gov.cn/gkml/bulinggonggao/tongzhitonggao/",
+        "publication_precision": "day",
+        "publisher": "mof.gov.cn"
+      },
+      "matched_task_ids": [
+        "rates-liquidity",
+        "credit-risk"
+      ]
+    },
+    {
+      "document_id": "c5e322bdf067b24c162f5320f0e4a353fa531228",
+      "event_cluster_id": "332d567ebd1c15098f18bda3",
+      "event_type": "bond_supply",
+      "severity": "medium",
+      "policy_stance": "neutral",
+      "bond_impact": "neutral",
+      "confidence": 0.51,
+      "evidence": [
+        "关于2026年记账式附息（十七期）国债第一次续发行工作有关事宜的通知",
+        "财政部拟第一次续发行2026年记账式附息（十七期）国债",
+        "现就本次续发行工作有关事宜通知如下："
+      ],
+      "affected_assets": [
+        "CREDIT_BOND"
+      ],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 1.0,
+        "liquidity": 0.0,
+        "supply": 1.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:59+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 34,
+            "start": 0,
+            "status": "asserted",
+            "text": "关于2026年记账式附息（十七期）国债第一次续发行工作有关事宜的通知"
+          },
+          {
+            "end": 48,
+            "start": 35,
+            "status": "asserted",
+            "text": "财办债〔2026〕202号"
+          },
+          {
+            "end": 123,
+            "start": 49,
+            "status": "asserted",
+            "text": "记账式国债承销团成员，中央国债登记结算有限责任公司、中国证券登记结算有限责任公司、中国外汇交易中心、上海证券交易所、深圳证券交易所、北京证券交易所："
+          },
+          {
+            "end": 151,
+            "start": 124,
+            "status": "asserted",
+            "text": "财政部拟第一次续发行2026年记账式附息（十七期）国债"
+          },
+          {
+            "end": 177,
+            "start": 171,
+            "status": "asserted",
+            "text": "一、债券要素"
+          },
+          {
+            "end": 202,
+            "start": 184,
+            "status": "asserted",
+            "text": "本次续发行国债为3年期固定利率附息债"
+          },
+          {
+            "end": 245,
+            "start": 212,
+            "status": "asserted",
+            "text": "本次续发行国债竞争性招标面值总额1300亿元，进行甲类成员追加投标"
+          },
+          {
+            "end": 254,
+            "start": 247,
+            "status": "asserted",
+            "text": "（三）票面利率"
+          },
+          {
+            "end": 285,
+            "start": 255,
+            "status": "asserted",
+            "text": "本次续发行国债票面利率与之前发行的同期国债相同，为1.23%"
+          },
+          {
+            "end": 296,
+            "start": 287,
+            "status": "asserted",
+            "text": "（四）本息兑付日期"
+          },
+          {
+            "end": 325,
+            "start": 297,
+            "status": "asserted",
+            "text": "本次续发行国债的起息日、兑付安排与之前发行的同期国债相同"
+          },
+          {
+            "end": 500,
+            "start": 474,
+            "status": "asserted",
+            "text": "通过财政部北京证券交易所政府债券发行系统进行招标发行"
+          },
+          {
+            "end": 734,
+            "start": 705,
+            "status": "asserted",
+            "text": "本次续发行国债发行手续费为各承销团成员承销面值的0.03%"
+          },
+          {
+            "end": 795,
+            "start": 746,
+            "status": "asserted",
+            "text": "本次续发行国债招标结束至2026年9月22日进行分销，9月24日起与之前发行的同期国债合并上市交易"
+          },
+          {
+            "end": 829,
+            "start": 802,
+            "status": "asserted",
+            "text": "本次发行应急投标书和债权托管应急申请书格式见附件1、2"
+          },
+          {
+            "end": 874,
+            "start": 831,
+            "status": "asserted",
+            "text": "除上述规定外，本次国债招标工作按《记账式国债招标发行规则》（财库〔2022〕4号）执行"
+          },
+          {
+            "end": 893,
+            "start": 876,
+            "status": "asserted",
+            "text": "附件：1.记账式国债发行应急投标书"
+          },
+          {
+            "end": 910,
+            "start": 894,
+            "status": "asserted",
+            "text": "2.记账式国债债权托管应急申请书"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "财政部"
+        ],
+        "evidence_url": "https://zwgls.mof.gov.cn/ywgg/202609/t20260915_3997439.htm",
+        "fact_status": "asserted",
+        "facts": [
+          {
+            "end": 7,
+            "start": 2,
+            "text": "2026年"
+          },
+          {
+            "end": 139,
+            "start": 134,
+            "text": "2026年"
+          },
+          {
+            "end": 195,
+            "start": 192,
+            "text": "3年期"
+          },
+          {
+            "end": 234,
+            "start": 228,
+            "text": "1300亿元"
+          },
+          {
+            "end": 285,
+            "start": 280,
+            "text": "1.23%"
+          },
+          {
+            "end": 332,
+            "start": 327,
+            "text": "2026年"
+          },
+          {
+            "end": 374,
+            "start": 369,
+            "text": "2029年"
+          },
+          {
+            "end": 417,
+            "start": 412,
+            "text": "2026年"
+          },
+          {
+            "end": 591,
+            "start": 586,
+            "text": "2026年"
+          },
+          {
+            "end": 734,
+            "start": 729,
+            "text": "0.03%"
+          },
+          {
+            "end": 763,
+            "start": 758,
+            "text": "2026年"
+          },
+          {
+            "end": 923,
+            "start": 918,
+            "text": "2026年"
+          }
+        ],
+        "matched_keywords": [
+          "价格",
+          "兑付",
+          "发行"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "neutral",
+          "policy_stance": "neutral",
+          "severity": "medium"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity",
+          "credit-risk"
+        ],
+        "verification": "primary_source"
+      },
+      "assessment_id": "23d06436c3d9c77d83b14a9a79e8bf2b24be9fd9",
+      "title": "关于2026年记账式附息（十七期）国债第一次续发行工作有关事宜的通知",
+      "url": "https://zwgls.mof.gov.cn/ywgg/202609/t20260915_3997439.htm",
+      "source_name": "mof_bonds",
+      "published_at": "2026-09-15T00:00:00+08:00",
+      "available_at": "2026-10-17T10:08:59+00:00",
+      "document_metadata": {
+        "list_url": "https://www.mof.gov.cn/gkml/bulinggonggao/tongzhitonggao/",
+        "publication_precision": "day",
+        "publisher": "mof.gov.cn"
+      },
+      "matched_task_ids": [
+        "rates-liquidity",
+        "credit-risk"
+      ]
+    },
+    {
+      "document_id": "61cbcff7ec04c409cbeba32cfd804b1fdd731886",
+      "event_cluster_id": "3fb195c15b92fda1be61e8ae",
+      "event_type": "bond_supply",
+      "severity": "medium",
+      "policy_stance": "unclear",
+      "bond_impact": "unclear",
+      "confidence": 0.4,
+      "evidence": [
+        "关于2026年记账式贴现（六十一期）国债发行工作有关事宜的通知",
+        "财政部拟发行2026年记账式贴现（六十一期）国债",
+        "现就本次发行工作有关事宜通知如下："
+      ],
+      "affected_assets": [
+        "CREDIT_BOND"
+      ],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 0.0,
+        "liquidity": 0.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:59+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 31,
+            "start": 0,
+            "status": "asserted",
+            "text": "关于2026年记账式贴现（六十一期）国债发行工作有关事宜的通知"
+          },
+          {
+            "end": 45,
+            "start": 32,
+            "status": "asserted",
+            "text": "财办债〔2026〕204号"
+          },
+          {
+            "end": 112,
+            "start": 46,
+            "status": "asserted",
+            "text": "记账式国债承销团成员，中央国债登记结算有限责任公司、中国证券登记结算有限责任公司、中国外汇交易中心、上海证券交易所、深圳证券交易所："
+          },
+          {
+            "end": 137,
+            "start": 113,
+            "status": "conditional",
+            "text": "财政部拟发行2026年记账式贴现（六十一期）国债"
+          },
+          {
+            "end": 162,
+            "start": 156,
+            "status": "asserted",
+            "text": "一、债券要素"
+          },
+          {
+            "end": 184,
+            "start": 169,
+            "status": "asserted",
+            "text": "本期国债为期限182天的贴现债"
+          },
+          {
+            "end": 223,
+            "start": 194,
+            "status": "asserted",
+            "text": "本期国债竞争性招标面值总额600亿元，进行甲类成员追加投标"
+          },
+          {
+            "end": 265,
+            "start": 233,
+            "status": "asserted",
+            "text": "本期国债发行价格通过竞争性招标确定，以低于票面金额的价格贴现发行"
+          },
+          {
+            "end": 276,
+            "start": 267,
+            "status": "asserted",
+            "text": "（四）本息兑付日期"
+          },
+          {
+            "end": 320,
+            "start": 277,
+            "status": "asserted",
+            "text": "本期国债自2026年9月24日开始计息，于2027年3月25日（节假日顺延）按面值偿还"
+          },
+          {
+            "end": 421,
+            "start": 402,
+            "status": "asserted",
+            "text": "通过财政部政府债券发行系统进行招标发行"
+          },
+          {
+            "end": 665,
+            "start": 631,
+            "status": "asserted",
+            "text": "本期国债招标结束至2026年9月24日进行分销，9月29日起上市交易"
+          },
+          {
+            "end": 699,
+            "start": 672,
+            "status": "asserted",
+            "text": "本次发行应急投标书和债权托管应急申请书格式见附件1、2"
+          },
+          {
+            "end": 744,
+            "start": 701,
+            "status": "asserted",
+            "text": "除上述规定外，本次国债招标工作按《记账式国债招标发行规则》（财库〔2022〕4号）执行"
+          },
+          {
+            "end": 763,
+            "start": 746,
+            "status": "asserted",
+            "text": "附件：1.记账式国债发行应急投标书"
+          },
+          {
+            "end": 783,
+            "start": 767,
+            "status": "asserted",
+            "text": "2.记账式国债债权托管应急申请书"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "财政部"
+        ],
+        "evidence_url": "https://zwgls.mof.gov.cn/ywgg/202609/t20260917_3997584.htm",
+        "fact_status": "conditional",
+        "facts": [
+          {
+            "end": 7,
+            "start": 2,
+            "text": "2026年"
+          },
+          {
+            "end": 124,
+            "start": 119,
+            "text": "2026年"
+          },
+          {
+            "end": 180,
+            "start": 176,
+            "text": "182天"
+          },
+          {
+            "end": 212,
+            "start": 207,
+            "text": "600亿元"
+          },
+          {
+            "end": 287,
+            "start": 282,
+            "text": "2026年"
+          },
+          {
+            "end": 303,
+            "start": 298,
+            "text": "2027年"
+          },
+          {
+            "end": 345,
+            "start": 340,
+            "text": "2026年"
+          },
+          {
+            "end": 507,
+            "start": 502,
+            "text": "2026年"
+          },
+          {
+            "end": 645,
+            "start": 640,
+            "text": "2026年"
+          },
+          {
+            "end": 796,
+            "start": 791,
+            "text": "2026年"
+          }
+        ],
+        "matched_keywords": [
+          "价格",
+          "兑付",
+          "发行"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "unclear",
+          "policy_stance": "unclear",
+          "severity": "medium"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity",
+          "credit-risk"
+        ],
+        "verification": "primary_source"
+      },
+      "assessment_id": "70568e7b5b5f976d9382350553cef4595f21b285",
+      "title": "关于2026年记账式贴现（六十一期）国债发行工作有关事宜的通知",
+      "url": "https://zwgls.mof.gov.cn/ywgg/202609/t20260917_3997584.htm",
+      "source_name": "mof_bonds",
+      "published_at": "2026-09-17T00:00:00+08:00",
+      "available_at": "2026-10-17T10:08:59+00:00",
+      "document_metadata": {
+        "list_url": "https://www.mof.gov.cn/gkml/bulinggonggao/tongzhitonggao/",
+        "publication_precision": "day",
+        "publisher": "mof.gov.cn"
+      },
+      "matched_task_ids": [
+        "rates-liquidity",
+        "credit-risk"
+      ]
+    },
+    {
+      "document_id": "c05ad769d4f4c739440b248e331883892384ad72",
+      "event_cluster_id": "084ee1600bb75f8a0b9ae557",
+      "event_type": "bond_supply",
+      "severity": "medium",
+      "policy_stance": "unclear",
+      "bond_impact": "unclear",
+      "confidence": 0.4,
+      "evidence": [
+        "关于2026年记账式贴现（六十二期）国债发行工作有关事宜的通知",
+        "财政部拟发行2026年记账式贴现（六十二期）国债",
+        "现就本次发行工作有关事宜通知如下："
+      ],
+      "affected_assets": [
+        "CREDIT_BOND"
+      ],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 0.0,
+        "liquidity": 0.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:59+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 31,
+            "start": 0,
+            "status": "asserted",
+            "text": "关于2026年记账式贴现（六十二期）国债发行工作有关事宜的通知"
+          },
+          {
+            "end": 45,
+            "start": 32,
+            "status": "asserted",
+            "text": "财办债〔2026〕205号"
+          },
+          {
+            "end": 112,
+            "start": 46,
+            "status": "asserted",
+            "text": "记账式国债承销团成员，中央国债登记结算有限责任公司、中国证券登记结算有限责任公司、中国外汇交易中心、上海证券交易所、深圳证券交易所："
+          },
+          {
+            "end": 137,
+            "start": 113,
+            "status": "conditional",
+            "text": "财政部拟发行2026年记账式贴现（六十二期）国债"
+          },
+          {
+            "end": 162,
+            "start": 156,
+            "status": "asserted",
+            "text": "一、债券要素"
+          },
+          {
+            "end": 183,
+            "start": 169,
+            "status": "asserted",
+            "text": "本期国债为期限91天的贴现债"
+          },
+          {
+            "end": 222,
+            "start": 193,
+            "status": "asserted",
+            "text": "本期国债竞争性招标面值总额400亿元，进行甲类成员追加投标"
+          },
+          {
+            "end": 264,
+            "start": 232,
+            "status": "asserted",
+            "text": "本期国债发行价格通过竞争性招标确定，以低于票面金额的价格贴现发行"
+          },
+          {
+            "end": 275,
+            "start": 266,
+            "status": "asserted",
+            "text": "（四）本息兑付日期"
+          },
+          {
+            "end": 320,
+            "start": 276,
+            "status": "asserted",
+            "text": "本期国债自2026年9月24日开始计息，于2026年12月24日（节假日顺延）按面值偿还"
+          },
+          {
+            "end": 421,
+            "start": 402,
+            "status": "asserted",
+            "text": "通过财政部政府债券发行系统进行招标发行"
+          },
+          {
+            "end": 665,
+            "start": 631,
+            "status": "asserted",
+            "text": "本期国债招标结束至2026年9月24日进行分销，9月29日起上市交易"
+          },
+          {
+            "end": 699,
+            "start": 672,
+            "status": "asserted",
+            "text": "本次发行应急投标书和债权托管应急申请书格式见附件1、2"
+          },
+          {
+            "end": 744,
+            "start": 701,
+            "status": "asserted",
+            "text": "除上述规定外，本次国债招标工作按《记账式国债招标发行规则》（财库〔2022〕4号）执行"
+          },
+          {
+            "end": 763,
+            "start": 746,
+            "status": "asserted",
+            "text": "附件：1.记账式国债发行应急投标书"
+          },
+          {
+            "end": 780,
+            "start": 764,
+            "status": "asserted",
+            "text": "2.记账式国债债权托管应急申请书"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "财政部"
+        ],
+        "evidence_url": "https://zwgls.mof.gov.cn/ywgg/202609/t20260922_3997959.htm",
+        "fact_status": "conditional",
+        "facts": [
+          {
+            "end": 7,
+            "start": 2,
+            "text": "2026年"
+          },
+          {
+            "end": 124,
+            "start": 119,
+            "text": "2026年"
+          },
+          {
+            "end": 179,
+            "start": 176,
+            "text": "91天"
+          },
+          {
+            "end": 211,
+            "start": 206,
+            "text": "400亿元"
+          },
+          {
+            "end": 286,
+            "start": 281,
+            "text": "2026年"
+          },
+          {
+            "end": 302,
+            "start": 297,
+            "text": "2026年"
+          },
+          {
+            "end": 345,
+            "start": 340,
+            "text": "2026年"
+          },
+          {
+            "end": 507,
+            "start": 502,
+            "text": "2026年"
+          },
+          {
+            "end": 645,
+            "start": 640,
+            "text": "2026年"
+          },
+          {
+            "end": 793,
+            "start": 788,
+            "text": "2026年"
+          }
+        ],
+        "matched_keywords": [
+          "价格",
+          "兑付",
+          "发行"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "unclear",
+          "policy_stance": "unclear",
+          "severity": "medium"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity",
+          "credit-risk"
+        ],
+        "verification": "primary_source"
+      },
+      "assessment_id": "71af0233464e69676ef91d04c214f30c612468a9",
+      "title": "关于2026年记账式贴现（六十二期）国债发行工作有关事宜的通知",
+      "url": "https://zwgls.mof.gov.cn/ywgg/202609/t20260922_3997959.htm",
+      "source_name": "mof_bonds",
+      "published_at": "2026-09-22T00:00:00+08:00",
+      "available_at": "2026-10-17T10:08:59+00:00",
+      "document_metadata": {
+        "list_url": "https://www.mof.gov.cn/gkml/bulinggonggao/tongzhitonggao/",
+        "publication_precision": "day",
+        "publisher": "mof.gov.cn"
+      },
+      "matched_task_ids": [
+        "rates-liquidity",
+        "credit-risk"
+      ]
+    },
+    {
+      "document_id": "2f68f6b6c4cb92836cec7d26309210f6bf273617",
+      "event_cluster_id": "dc9e81cf89ff11f452336f65",
+      "event_type": "bond_supply",
+      "severity": "medium",
+      "policy_stance": "neutral",
+      "bond_impact": "neutral",
+      "confidence": 0.47000000000000003,
+      "evidence": [
+        "关于公布2026年第四季度国债发行有关安排的通知",
+        "现公布2026年第四季度超长期特别国债、中央金融机构注资特别国债、关键期限国债、超长期一般国债、短期国债、储蓄国债发行有关安排（见附件）",
+        "执行中如有变动，以届时国债发行文件为准"
+      ],
+      "affected_assets": [
+        "TL"
+      ],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 0.0,
+        "liquidity": 0.0,
+        "supply": 1.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:59+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 24,
+            "start": 0,
+            "status": "asserted",
+            "text": "关于公布2026年第四季度国债发行有关安排的通知"
+          },
+          {
+            "end": 38,
+            "start": 25,
+            "status": "asserted",
+            "text": "财办债〔2026〕213号"
+          },
+          {
+            "end": 123,
+            "start": 39,
+            "status": "asserted",
+            "text": "记账式国债承销团成员、储蓄国债承销团成员，中央国债登记结算有限责任公司、中国证券登记结算有限责任公司、中国外汇交易中心、上海证券交易所、深圳证券交易所、北京证券交易所："
+          },
+          {
+            "end": 193,
+            "start": 125,
+            "status": "asserted",
+            "text": "现公布2026年第四季度超长期特别国债、中央金融机构注资特别国债、关键期限国债、超长期一般国债、短期国债、储蓄国债发行有关安排（见附件）"
+          },
+          {
+            "end": 213,
+            "start": 194,
+            "status": "asserted",
+            "text": "执行中如有变动，以届时国债发行文件为准"
+          },
+          {
+            "end": 236,
+            "start": 216,
+            "status": "asserted",
+            "text": "附件：2026年第四季度国债发行有关安排"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "财政部"
+        ],
+        "evidence_url": "https://zwgls.mof.gov.cn/ywgg/202609/t20260929_3998334.htm",
+        "fact_status": "asserted",
+        "facts": [
+          {
+            "end": 9,
+            "start": 4,
+            "text": "2026年"
+          },
+          {
+            "end": 133,
+            "start": 128,
+            "text": "2026年"
+          },
+          {
+            "end": 224,
+            "start": 219,
+            "text": "2026年"
+          },
+          {
+            "end": 251,
+            "start": 246,
+            "text": "2026年"
+          }
+        ],
+        "matched_keywords": [
+          "发行"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "neutral",
+          "policy_stance": "neutral",
+          "severity": "medium"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity"
+        ],
+        "verification": "primary_source"
+      },
+      "assessment_id": "b15986fb07fd822c8e5c4ace2ec10d9612a96a10",
+      "title": "关于公布2026年第四季度国债发行有关安排的通知",
+      "url": "https://zwgls.mof.gov.cn/ywgg/202609/t20260929_3998334.htm",
+      "source_name": "mof_bonds",
+      "published_at": "2026-09-29T00:00:00+08:00",
+      "available_at": "2026-10-17T10:08:59+00:00",
+      "document_metadata": {
+        "list_url": "https://www.mof.gov.cn/gkml/bulinggonggao/tongzhitonggao/",
+        "publication_precision": "day",
+        "publisher": "mof.gov.cn"
+      },
+      "matched_task_ids": [
+        "rates-liquidity"
+      ]
+    },
+    {
+      "document_id": "1795f49b389586029380ce0aabc942e6fd379289",
+      "event_cluster_id": "85ba1f30e8ffcce6331a9019",
+      "event_type": "bond_supply",
+      "severity": "medium",
+      "policy_stance": "neutral",
+      "bond_impact": "neutral",
+      "confidence": 0.51,
+      "evidence": [
+        "关于2026年记账式附息（十七期）国债第二次续发行工作有关事宜的通知",
+        "财政部拟第二次续发行2026年记账式附息（十七期）国债",
+        "现就本次续发行工作有关事宜通知如下："
+      ],
+      "affected_assets": [
+        "CREDIT_BOND"
+      ],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 1.0,
+        "liquidity": 0.0,
+        "supply": 1.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:59+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 34,
+            "start": 0,
+            "status": "asserted",
+            "text": "关于2026年记账式附息（十七期）国债第二次续发行工作有关事宜的通知"
+          },
+          {
+            "end": 48,
+            "start": 35,
+            "status": "asserted",
+            "text": "财办债〔2026〕218号"
+          },
+          {
+            "end": 123,
+            "start": 49,
+            "status": "asserted",
+            "text": "记账式国债承销团成员，中央国债登记结算有限责任公司、中国证券登记结算有限责任公司、中国外汇交易中心、上海证券交易所、深圳证券交易所、北京证券交易所："
+          },
+          {
+            "end": 151,
+            "start": 124,
+            "status": "asserted",
+            "text": "财政部拟第二次续发行2026年记账式附息（十七期）国债"
+          },
+          {
+            "end": 177,
+            "start": 171,
+            "status": "asserted",
+            "text": "一、债券要素"
+          },
+          {
+            "end": 202,
+            "start": 184,
+            "status": "asserted",
+            "text": "本次续发行国债为3年期固定利率附息债"
+          },
+          {
+            "end": 245,
+            "start": 212,
+            "status": "asserted",
+            "text": "本次续发行国债竞争性招标面值总额1200亿元，进行甲类成员追加投标"
+          },
+          {
+            "end": 254,
+            "start": 247,
+            "status": "asserted",
+            "text": "（三）票面利率"
+          },
+          {
+            "end": 285,
+            "start": 255,
+            "status": "asserted",
+            "text": "本次续发行国债票面利率与之前发行的同期国债相同，为1.23%"
+          },
+          {
+            "end": 296,
+            "start": 287,
+            "status": "asserted",
+            "text": "（四）本息兑付日期"
+          },
+          {
+            "end": 325,
+            "start": 297,
+            "status": "asserted",
+            "text": "本次续发行国债的起息日、兑付安排与之前发行的同期国债相同"
+          },
+          {
+            "end": 501,
+            "start": 475,
+            "status": "asserted",
+            "text": "通过财政部北京证券交易所政府债券发行系统进行招标发行"
+          },
+          {
+            "end": 737,
+            "start": 708,
+            "status": "asserted",
+            "text": "本次续发行国债发行手续费为各承销团成员承销面值的0.03%"
+          },
+          {
+            "end": 800,
+            "start": 749,
+            "status": "asserted",
+            "text": "本次续发行国债招标结束至2026年10月19日进行分销，10月21日起与之前发行的同期国债合并上市交易"
+          },
+          {
+            "end": 834,
+            "start": 807,
+            "status": "asserted",
+            "text": "本次发行应急投标书和债权托管应急申请书格式见附件1、2"
+          },
+          {
+            "end": 879,
+            "start": 836,
+            "status": "asserted",
+            "text": "除上述规定外，本次国债招标工作按《记账式国债招标发行规则》（财库〔2022〕4号）执行"
+          },
+          {
+            "end": 898,
+            "start": 881,
+            "status": "asserted",
+            "text": "附件：1.记账式国债发行应急投标书"
+          },
+          {
+            "end": 915,
+            "start": 899,
+            "status": "asserted",
+            "text": "2.记账式国债债权托管应急申请书"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "财政部"
+        ],
+        "evidence_url": "https://zwgls.mof.gov.cn/ywgg/202610/t20261010_4002491.htm",
+        "fact_status": "asserted",
+        "facts": [
+          {
+            "end": 7,
+            "start": 2,
+            "text": "2026年"
+          },
+          {
+            "end": 139,
+            "start": 134,
+            "text": "2026年"
+          },
+          {
+            "end": 195,
+            "start": 192,
+            "text": "3年期"
+          },
+          {
+            "end": 234,
+            "start": 228,
+            "text": "1200亿元"
+          },
+          {
+            "end": 285,
+            "start": 280,
+            "text": "1.23%"
+          },
+          {
+            "end": 332,
+            "start": 327,
+            "text": "2026年"
+          },
+          {
+            "end": 374,
+            "start": 369,
+            "text": "2029年"
+          },
+          {
+            "end": 417,
+            "start": 412,
+            "text": "2026年"
+          },
+          {
+            "end": 592,
+            "start": 587,
+            "text": "2026年"
+          },
+          {
+            "end": 737,
+            "start": 732,
+            "text": "0.03%"
+          },
+          {
+            "end": 766,
+            "start": 761,
+            "text": "2026年"
+          },
+          {
+            "end": 928,
+            "start": 923,
+            "text": "2026年"
+          }
+        ],
+        "matched_keywords": [
+          "价格",
+          "兑付",
+          "发行"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "neutral",
+          "policy_stance": "neutral",
+          "severity": "medium"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity",
+          "credit-risk"
+        ],
+        "verification": "primary_source"
+      },
+      "assessment_id": "1199a75216ae477fa4cb1247edfe318ba95325d4",
+      "title": "关于2026年记账式附息（十七期）国债第二次续发行工作有关事宜的通知",
+      "url": "https://zwgls.mof.gov.cn/ywgg/202610/t20261010_4002491.htm",
+      "source_name": "mof_bonds",
+      "published_at": "2026-10-10T00:00:00+08:00",
+      "available_at": "2026-10-17T10:08:59+00:00",
+      "document_metadata": {
+        "list_url": "https://www.mof.gov.cn/gkml/bulinggonggao/tongzhitonggao/",
+        "publication_precision": "day",
+        "publisher": "mof.gov.cn"
+      },
+      "matched_task_ids": [
+        "rates-liquidity",
+        "credit-risk"
+      ]
+    },
+    {
+      "document_id": "35c09f81529ce9298a97700b549fa822e5f37d12",
+      "event_cluster_id": "0ac280b8a9e50e765636ac27",
+      "event_type": "bond_supply",
+      "severity": "medium",
+      "policy_stance": "unclear",
+      "bond_impact": "unclear",
+      "confidence": 0.4,
+      "evidence": [
+        "关于2026年记账式贴现（六十四期）国债发行工作有关事宜的通知",
+        "财政部拟发行2026年记账式贴现（六十四期）国债",
+        "现就本次发行工作有关事宜通知如下："
+      ],
+      "affected_assets": [
+        "CREDIT_BOND"
+      ],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 0.0,
+        "liquidity": 0.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:59+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 31,
+            "start": 0,
+            "status": "asserted",
+            "text": "关于2026年记账式贴现（六十四期）国债发行工作有关事宜的通知"
+          },
+          {
+            "end": 45,
+            "start": 32,
+            "status": "asserted",
+            "text": "财办债〔2026〕215号"
+          },
+          {
+            "end": 120,
+            "start": 46,
+            "status": "asserted",
+            "text": "记账式国债承销团成员，中央国债登记结算有限责任公司、中国证券登记结算有限责任公司、中国外汇交易中心、上海证券交易所、深圳证券交易所、北京证券交易所："
+          },
+          {
+            "end": 145,
+            "start": 121,
+            "status": "conditional",
+            "text": "财政部拟发行2026年记账式贴现（六十四期）国债"
+          },
+          {
+            "end": 170,
+            "start": 164,
+            "status": "asserted",
+            "text": "一、债券要素"
+          },
+          {
+            "end": 191,
+            "start": 177,
+            "status": "asserted",
+            "text": "本期国债为期限91天的贴现债"
+          },
+          {
+            "end": 230,
+            "start": 201,
+            "status": "asserted",
+            "text": "本期国债竞争性招标面值总额600亿元，进行甲类成员追加投标"
+          },
+          {
+            "end": 272,
+            "start": 240,
+            "status": "asserted",
+            "text": "本期国债发行价格通过竞争性招标确定，以低于票面金额的价格贴现发行"
+          },
+          {
+            "end": 283,
+            "start": 274,
+            "status": "asserted",
+            "text": "（四）本息兑付日期"
+          },
+          {
+            "end": 328,
+            "start": 284,
+            "status": "asserted",
+            "text": "本期国债自2026年10月15日开始计息，于2027年1月14日（节假日顺延）按面值偿还"
+          },
+          {
+            "end": 437,
+            "start": 411,
+            "status": "asserted",
+            "text": "通过财政部北京证券交易所政府债券发行系统进行招标发行"
+          },
+          {
+            "end": 685,
+            "start": 649,
+            "status": "asserted",
+            "text": "本期国债招标结束至2026年10月15日进行分销，10月19日起上市交易"
+          },
+          {
+            "end": 719,
+            "start": 692,
+            "status": "asserted",
+            "text": "本次发行应急投标书和债权托管应急申请书格式见附件1、2"
+          },
+          {
+            "end": 764,
+            "start": 721,
+            "status": "asserted",
+            "text": "除上述规定外，本次国债招标工作按《记账式国债招标发行规则》（财库〔2022〕4号）执行"
+          },
+          {
+            "end": 783,
+            "start": 766,
+            "status": "asserted",
+            "text": "附件：1.记账式国债发行应急投标书"
+          },
+          {
+            "end": 803,
+            "start": 787,
+            "status": "asserted",
+            "text": "2.记账式国债债权托管应急申请书"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "财政部"
+        ],
+        "evidence_url": "https://zwgls.mof.gov.cn/ywgg/202610/t20261013_4002694.htm",
+        "fact_status": "conditional",
+        "facts": [
+          {
+            "end": 7,
+            "start": 2,
+            "text": "2026年"
+          },
+          {
+            "end": 132,
+            "start": 127,
+            "text": "2026年"
+          },
+          {
+            "end": 187,
+            "start": 184,
+            "text": "91天"
+          },
+          {
+            "end": 219,
+            "start": 214,
+            "text": "600亿元"
+          },
+          {
+            "end": 294,
+            "start": 289,
+            "text": "2026年"
+          },
+          {
+            "end": 311,
+            "start": 306,
+            "text": "2027年"
+          },
+          {
+            "end": 353,
+            "start": 348,
+            "text": "2026年"
+          },
+          {
+            "end": 523,
+            "start": 518,
+            "text": "2026年"
+          },
+          {
+            "end": 663,
+            "start": 658,
+            "text": "2026年"
+          },
+          {
+            "end": 816,
+            "start": 811,
+            "text": "2026年"
+          }
+        ],
+        "matched_keywords": [
+          "价格",
+          "兑付",
+          "发行"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "unclear",
+          "policy_stance": "unclear",
+          "severity": "medium"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity",
+          "credit-risk"
+        ],
+        "verification": "primary_source"
+      },
+      "assessment_id": "5b7f8ced66bbdad0cf2d8a9556da6b85d8144c58",
+      "title": "关于2026年记账式贴现（六十四期）国债发行工作有关事宜的通知",
+      "url": "https://zwgls.mof.gov.cn/ywgg/202610/t20261013_4002694.htm",
+      "source_name": "mof_bonds",
+      "published_at": "2026-10-13T00:00:00+08:00",
+      "available_at": "2026-10-17T10:08:59+00:00",
+      "document_metadata": {
+        "list_url": "https://www.mof.gov.cn/gkml/bulinggonggao/tongzhitonggao/",
+        "publication_precision": "day",
+        "publisher": "mof.gov.cn"
+      },
+      "matched_task_ids": [
+        "rates-liquidity",
+        "credit-risk"
+      ]
+    },
+    {
+      "document_id": "c70361173c8c5ffc0cd02ba3505b747797bebb7d",
+      "event_cluster_id": "068cdb0c8b1d05e8924f7d96",
+      "event_type": "bond_supply",
+      "severity": "medium",
+      "policy_stance": "unclear",
+      "bond_impact": "unclear",
+      "confidence": 0.4,
+      "evidence": [
+        "关于2026年记账式贴现（六十五期）国债发行工作有关事宜的通知",
+        "财政部拟发行2026年记账式贴现（六十五期）国债",
+        "现就本次发行工作有关事宜通知如下："
+      ],
+      "affected_assets": [
+        "CREDIT_BOND"
+      ],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 0.0,
+        "liquidity": 0.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:59+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 31,
+            "start": 0,
+            "status": "asserted",
+            "text": "关于2026年记账式贴现（六十五期）国债发行工作有关事宜的通知"
+          },
+          {
+            "end": 45,
+            "start": 32,
+            "status": "asserted",
+            "text": "财办债〔2026〕219号"
+          },
+          {
+            "end": 120,
+            "start": 46,
+            "status": "asserted",
+            "text": "记账式国债承销团成员，中央国债登记结算有限责任公司、中国证券登记结算有限责任公司、中国外汇交易中心、上海证券交易所、深圳证券交易所、北京证券交易所："
+          },
+          {
+            "end": 145,
+            "start": 121,
+            "status": "conditional",
+            "text": "财政部拟发行2026年记账式贴现（六十五期）国债"
+          },
+          {
+            "end": 170,
+            "start": 164,
+            "status": "asserted",
+            "text": "一、债券要素"
+          },
+          {
+            "end": 192,
+            "start": 177,
+            "status": "asserted",
+            "text": "本期国债为期限182天的贴现债"
+          },
+          {
+            "end": 231,
+            "start": 202,
+            "status": "asserted",
+            "text": "本期国债竞争性招标面值总额550亿元，进行甲类成员追加投标"
+          },
+          {
+            "end": 273,
+            "start": 241,
+            "status": "asserted",
+            "text": "本期国债发行价格通过竞争性招标确定，以低于票面金额的价格贴现发行"
+          },
+          {
+            "end": 284,
+            "start": 275,
+            "status": "asserted",
+            "text": "（四）本息兑付日期"
+          },
+          {
+            "end": 329,
+            "start": 285,
+            "status": "asserted",
+            "text": "本期国债自2026年10月21日开始计息，于2027年4月21日（节假日顺延）按面值偿还"
+          },
+          {
+            "end": 438,
+            "start": 412,
+            "status": "asserted",
+            "text": "通过财政部北京证券交易所政府债券发行系统进行招标发行"
+          },
+          {
+            "end": 686,
+            "start": 650,
+            "status": "asserted",
+            "text": "本期国债招标结束至2026年10月21日进行分销，10月23日起上市交易"
+          },
+          {
+            "end": 720,
+            "start": 693,
+            "status": "asserted",
+            "text": "本次发行应急投标书和债权托管应急申请书格式见附件1、2"
+          },
+          {
+            "end": 765,
+            "start": 722,
+            "status": "asserted",
+            "text": "除上述规定外，本次国债招标工作按《记账式国债招标发行规则》（财库〔2022〕4号）执行"
+          },
+          {
+            "end": 784,
+            "start": 767,
+            "status": "asserted",
+            "text": "附件：1.记账式国债发行应急投标书"
+          },
+          {
+            "end": 801,
+            "start": 785,
+            "status": "asserted",
+            "text": "2.记账式国债债权托管应急申请书"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "财政部"
+        ],
+        "evidence_url": "https://zwgls.mof.gov.cn/ywgg/202610/t20261013_4002703.htm",
+        "fact_status": "conditional",
+        "facts": [
+          {
+            "end": 7,
+            "start": 2,
+            "text": "2026年"
+          },
+          {
+            "end": 132,
+            "start": 127,
+            "text": "2026年"
+          },
+          {
+            "end": 188,
+            "start": 184,
+            "text": "182天"
+          },
+          {
+            "end": 220,
+            "start": 215,
+            "text": "550亿元"
+          },
+          {
+            "end": 295,
+            "start": 290,
+            "text": "2026年"
+          },
+          {
+            "end": 312,
+            "start": 307,
+            "text": "2027年"
+          },
+          {
+            "end": 354,
+            "start": 349,
+            "text": "2026年"
+          },
+          {
+            "end": 524,
+            "start": 519,
+            "text": "2026年"
+          },
+          {
+            "end": 664,
+            "start": 659,
+            "text": "2026年"
+          },
+          {
+            "end": 814,
+            "start": 809,
+            "text": "2026年"
+          }
+        ],
+        "matched_keywords": [
+          "价格",
+          "兑付",
+          "发行"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "unclear",
+          "policy_stance": "unclear",
+          "severity": "medium"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity",
+          "credit-risk"
+        ],
+        "verification": "primary_source"
+      },
+      "assessment_id": "cc32beedb2cb1d0476266713392069bd3f17b813",
+      "title": "关于2026年记账式贴现（六十五期）国债发行工作有关事宜的通知",
+      "url": "https://zwgls.mof.gov.cn/ywgg/202610/t20261013_4002703.htm",
+      "source_name": "mof_bonds",
+      "published_at": "2026-10-13T00:00:00+08:00",
+      "available_at": "2026-10-17T10:08:59+00:00",
+      "document_metadata": {
+        "list_url": "https://www.mof.gov.cn/gkml/bulinggonggao/tongzhitonggao/",
+        "publication_precision": "day",
+        "publisher": "mof.gov.cn"
+      },
+      "matched_task_ids": [
+        "rates-liquidity",
+        "credit-risk"
+      ]
+    },
+    {
+      "document_id": "df99833b9c6ce1f7c49a21e7e705021ea2faf2ab",
+      "event_cluster_id": "d28f8a5ece153289dc6e19ee",
+      "event_type": "bond_supply",
+      "severity": "medium",
+      "policy_stance": "neutral",
+      "bond_impact": "neutral",
+      "confidence": 0.51,
+      "evidence": [
+        "关于2026年记账式附息（十六期）国债第五次续发行工作有关事宜的通知",
+        "财政部拟第五次续发行2026年记账式附息（十六期）国债",
+        "现就本次续发行工作有关事宜通知如下："
+      ],
+      "affected_assets": [
+        "CREDIT_BOND"
+      ],
+      "tenors": [
+        "10Y"
+      ],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 1.0,
+        "liquidity": 0.0,
+        "supply": 1.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:59+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 34,
+            "start": 0,
+            "status": "asserted",
+            "text": "关于2026年记账式附息（十六期）国债第五次续发行工作有关事宜的通知"
+          },
+          {
+            "end": 48,
+            "start": 35,
+            "status": "asserted",
+            "text": "财办债〔2026〕221号"
+          },
+          {
+            "end": 123,
+            "start": 49,
+            "status": "asserted",
+            "text": "记账式国债承销团成员，中央国债登记结算有限责任公司、中国证券登记结算有限责任公司、中国外汇交易中心、上海证券交易所、深圳证券交易所、北京证券交易所："
+          },
+          {
+            "end": 151,
+            "start": 124,
+            "status": "asserted",
+            "text": "财政部拟第五次续发行2026年记账式附息（十六期）国债"
+          },
+          {
+            "end": 177,
+            "start": 171,
+            "status": "asserted",
+            "text": "一、债券要素"
+          },
+          {
+            "end": 203,
+            "start": 184,
+            "status": "asserted",
+            "text": "本次续发行国债为10年期固定利率附息债"
+          },
+          {
+            "end": 245,
+            "start": 213,
+            "status": "asserted",
+            "text": "本次续发行国债竞争性招标面值总额800亿元，进行甲类成员追加投标"
+          },
+          {
+            "end": 254,
+            "start": 247,
+            "status": "asserted",
+            "text": "（三）票面利率"
+          },
+          {
+            "end": 285,
+            "start": 255,
+            "status": "asserted",
+            "text": "本次续发行国债票面利率与之前发行的同期国债相同，为1.66%"
+          },
+          {
+            "end": 296,
+            "start": 287,
+            "status": "asserted",
+            "text": "（四）本息兑付日期"
+          },
+          {
+            "end": 325,
+            "start": 297,
+            "status": "asserted",
+            "text": "本次续发行国债的起息日、兑付安排与之前发行的同期国债相同"
+          },
+          {
+            "end": 508,
+            "start": 482,
+            "status": "asserted",
+            "text": "通过财政部北京证券交易所政府债券发行系统进行招标发行"
+          },
+          {
+            "end": 745,
+            "start": 716,
+            "status": "asserted",
+            "text": "本次续发行国债发行手续费为各承销团成员承销面值的0.06%"
+          },
+          {
+            "end": 808,
+            "start": 757,
+            "status": "asserted",
+            "text": "本次续发行国债招标结束至2026年10月21日进行分销，10月23日起与之前发行的同期国债合并上市交易"
+          },
+          {
+            "end": 842,
+            "start": 815,
+            "status": "asserted",
+            "text": "本次发行应急投标书和债权托管应急申请书格式见附件1、2"
+          },
+          {
+            "end": 887,
+            "start": 844,
+            "status": "asserted",
+            "text": "除上述规定外，本次国债招标工作按《记账式国债招标发行规则》（财库〔2022〕4号）执行"
+          },
+          {
+            "end": 906,
+            "start": 889,
+            "status": "asserted",
+            "text": "附件：1.记账式国债发行应急投标书"
+          },
+          {
+            "end": 923,
+            "start": 907,
+            "status": "asserted",
+            "text": "2.记账式国债债权托管应急申请书"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "财政部"
+        ],
+        "evidence_url": "https://zwgls.mof.gov.cn/ywgg/202610/t20261013_4002704.htm",
+        "fact_status": "asserted",
+        "facts": [
+          {
+            "end": 7,
+            "start": 2,
+            "text": "2026年"
+          },
+          {
+            "end": 139,
+            "start": 134,
+            "text": "2026年"
+          },
+          {
+            "end": 196,
+            "start": 192,
+            "text": "10年期"
+          },
+          {
+            "end": 234,
+            "start": 229,
+            "text": "800亿元"
+          },
+          {
+            "end": 285,
+            "start": 280,
+            "text": "1.66%"
+          },
+          {
+            "end": 332,
+            "start": 327,
+            "text": "2026年"
+          },
+          {
+            "end": 381,
+            "start": 376,
+            "text": "2036年"
+          },
+          {
+            "end": 424,
+            "start": 419,
+            "text": "2026年"
+          },
+          {
+            "end": 600,
+            "start": 595,
+            "text": "2026年"
+          },
+          {
+            "end": 745,
+            "start": 740,
+            "text": "0.06%"
+          },
+          {
+            "end": 774,
+            "start": 769,
+            "text": "2026年"
+          },
+          {
+            "end": 936,
+            "start": 931,
+            "text": "2026年"
+          }
+        ],
+        "matched_keywords": [
+          "价格",
+          "兑付",
+          "发行"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "neutral",
+          "policy_stance": "neutral",
+          "severity": "medium"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity",
+          "credit-risk"
+        ],
+        "verification": "primary_source"
+      },
+      "assessment_id": "2dbc68a9748c2e9fc41cb88eec05a340f67103b7",
+      "title": "关于2026年记账式附息（十六期）国债第五次续发行工作有关事宜的通知",
+      "url": "https://zwgls.mof.gov.cn/ywgg/202610/t20261013_4002704.htm",
+      "source_name": "mof_bonds",
+      "published_at": "2026-10-13T00:00:00+08:00",
+      "available_at": "2026-10-17T10:08:59+00:00",
+      "document_metadata": {
+        "list_url": "https://www.mof.gov.cn/gkml/bulinggonggao/tongzhitonggao/",
+        "publication_precision": "day",
+        "publisher": "mof.gov.cn"
+      },
+      "matched_task_ids": [
+        "rates-liquidity",
+        "credit-risk"
+      ]
+    },
+    {
+      "document_id": "7e17ab6c95d8d7527741748847afdefb84a68f51",
+      "event_cluster_id": "47b385a66cd6acfcc0a45aa9",
+      "event_type": "policy_liquidity",
+      "severity": "low",
+      "policy_stance": "neutral",
+      "bond_impact": "neutral",
+      "confidence": 0.47000000000000003,
+      "evidence": [
+        "2026年9月29日中国人民银行以固定利率、数量招标方式开展了905亿元7天期逆回购操作，全额满足了一级交易商需求",
+        "7天期逆回购操作情况",
+        "同时，开展了6985亿元隔夜逆回购操作"
+      ],
+      "affected_assets": [
+        "CGB"
+      ],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 0.0,
+        "liquidity": 1.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:47+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 80,
+            "start": 23,
+            "status": "asserted",
+            "text": "2026年9月29日中国人民银行以固定利率、数量招标方式开展了905亿元7天期逆回购操作，全额满足了一级交易商需求"
+          },
+          {
+            "end": 99,
+            "start": 89,
+            "status": "asserted",
+            "text": "7天期逆回购操作情况"
+          },
+          {
+            "end": 107,
+            "start": 103,
+            "status": "asserted",
+            "text": "操作利率"
+          },
+          {
+            "end": 156,
+            "start": 137,
+            "status": "asserted",
+            "text": "同时，开展了6985亿元隔夜逆回购操作"
+          },
+          {
+            "end": 173,
+            "start": 158,
+            "status": "asserted",
+            "text": "中国人民银行公开市场业务操作室"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "中国人民银行"
+        ],
+        "evidence_url": "https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125431/125475/2026092908461628271/index.html",
+        "fact_status": "asserted",
+        "facts": [
+          {
+            "end": 28,
+            "start": 23,
+            "text": "2026年"
+          },
+          {
+            "end": 59,
+            "start": 54,
+            "text": "905亿元"
+          },
+          {
+            "end": 62,
+            "start": 59,
+            "text": "7天期"
+          },
+          {
+            "end": 92,
+            "start": 89,
+            "text": "7天期"
+          },
+          {
+            "end": 118,
+            "start": 116,
+            "text": "7天"
+          },
+          {
+            "end": 124,
+            "start": 119,
+            "text": "1.40%"
+          },
+          {
+            "end": 130,
+            "start": 125,
+            "text": "905亿元"
+          },
+          {
+            "end": 136,
+            "start": 131,
+            "text": "905亿元"
+          },
+          {
+            "end": 149,
+            "start": 143,
+            "text": "6985亿元"
+          }
+        ],
+        "matched_keywords": [
+          "逆回购"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "neutral",
+          "policy_stance": "neutral",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity"
+        ],
+        "verification": "primary_source"
+      },
+      "assessment_id": "569eb82458155e73644718e88e7d0669b140c4d3",
+      "title": "公开市场业务交易公告 [2026]第191号",
+      "url": "https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125431/125475/2026092908461628271/index.html",
+      "source_name": "pbc_omo",
+      "published_at": "2026-09-29T00:00:00+08:00",
+      "available_at": "2026-10-17T10:08:47+00:00",
+      "document_metadata": {
+        "list_url": "https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125431/125475/index.html",
+        "publication_precision": "day",
+        "publisher": "pbc.gov.cn"
+      },
+      "matched_task_ids": [
+        "rates-liquidity"
+      ]
+    },
+    {
+      "document_id": "f6f92a133d35794a5fca6e235c80b7666afe116c",
+      "event_cluster_id": "a025c8e56f7695a21f1edd91",
+      "event_type": "policy_liquidity",
+      "severity": "low",
+      "policy_stance": "neutral",
+      "bond_impact": "neutral",
+      "confidence": 0.47000000000000003,
+      "evidence": [
+        "根据公开市场业务一级交易商的需求，2026年9月30日7天期逆回购操作量为零",
+        "7天期逆回购操作情况",
+        "同时，开展了8335亿元隔夜逆回购操作"
+      ],
+      "affected_assets": [
+        "CGB"
+      ],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 0.0,
+        "liquidity": 1.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:47+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 61,
+            "start": 23,
+            "status": "asserted",
+            "text": "根据公开市场业务一级交易商的需求，2026年9月30日7天期逆回购操作量为零"
+          },
+          {
+            "end": 80,
+            "start": 70,
+            "status": "asserted",
+            "text": "7天期逆回购操作情况"
+          },
+          {
+            "end": 122,
+            "start": 103,
+            "status": "asserted",
+            "text": "同时，开展了8335亿元隔夜逆回购操作"
+          },
+          {
+            "end": 139,
+            "start": 124,
+            "status": "asserted",
+            "text": "中国人民银行公开市场业务操作室"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "中国人民银行"
+        ],
+        "evidence_url": "https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125431/125475/2026093008493852899/index.html",
+        "fact_status": "asserted",
+        "facts": [
+          {
+            "end": 45,
+            "start": 40,
+            "text": "2026年"
+          },
+          {
+            "end": 53,
+            "start": 50,
+            "text": "7天期"
+          },
+          {
+            "end": 73,
+            "start": 70,
+            "text": "7天期"
+          },
+          {
+            "end": 94,
+            "start": 92,
+            "text": "7天"
+          },
+          {
+            "end": 98,
+            "start": 95,
+            "text": "0亿元"
+          },
+          {
+            "end": 102,
+            "start": 99,
+            "text": "0亿元"
+          },
+          {
+            "end": 115,
+            "start": 109,
+            "text": "8335亿元"
+          }
+        ],
+        "matched_keywords": [
+          "逆回购"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "neutral",
+          "policy_stance": "neutral",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity"
+        ],
+        "verification": "primary_source"
+      },
+      "assessment_id": "ba523584c43de4644fc07277e2fb7091f5f6c2e9",
+      "title": "公开市场业务交易公告 [2026]第192号",
+      "url": "https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125431/125475/2026093008493852899/index.html",
+      "source_name": "pbc_omo",
+      "published_at": "2026-09-30T00:00:00+08:00",
+      "available_at": "2026-10-17T10:08:47+00:00",
+      "document_metadata": {
+        "list_url": "https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125431/125475/index.html",
+        "publication_precision": "day",
+        "publisher": "pbc.gov.cn"
+      },
+      "matched_task_ids": [
+        "rates-liquidity"
+      ]
+    },
+    {
+      "document_id": "dcf7b5eabb0fdadb52368e832d1302b778a25fd6",
+      "event_cluster_id": "c9e83669686482055cd32373",
+      "event_type": "policy_liquidity",
+      "severity": "low",
+      "policy_stance": "neutral",
+      "bond_impact": "neutral",
+      "confidence": 0.47000000000000003,
+      "evidence": [
+        "根据公开市场业务一级交易商的需求，2026年10月8日7天期逆回购操作量为零",
+        "7天期逆回购操作情况",
+        "同时，开展了6060亿元隔夜逆回购操作"
+      ],
+      "affected_assets": [
+        "CGB"
+      ],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 0.0,
+        "liquidity": 1.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:47+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 61,
+            "start": 23,
+            "status": "asserted",
+            "text": "根据公开市场业务一级交易商的需求，2026年10月8日7天期逆回购操作量为零"
+          },
+          {
+            "end": 80,
+            "start": 70,
+            "status": "asserted",
+            "text": "7天期逆回购操作情况"
+          },
+          {
+            "end": 122,
+            "start": 103,
+            "status": "asserted",
+            "text": "同时，开展了6060亿元隔夜逆回购操作"
+          },
+          {
+            "end": 139,
+            "start": 124,
+            "status": "asserted",
+            "text": "中国人民银行公开市场业务操作室"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "中国人民银行"
+        ],
+        "evidence_url": "https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125431/125475/2026100808585348687/index.html",
+        "fact_status": "asserted",
+        "facts": [
+          {
+            "end": 45,
+            "start": 40,
+            "text": "2026年"
+          },
+          {
+            "end": 53,
+            "start": 50,
+            "text": "7天期"
+          },
+          {
+            "end": 73,
+            "start": 70,
+            "text": "7天期"
+          },
+          {
+            "end": 94,
+            "start": 92,
+            "text": "7天"
+          },
+          {
+            "end": 98,
+            "start": 95,
+            "text": "0亿元"
+          },
+          {
+            "end": 102,
+            "start": 99,
+            "text": "0亿元"
+          },
+          {
+            "end": 115,
+            "start": 109,
+            "text": "6060亿元"
+          }
+        ],
+        "matched_keywords": [
+          "逆回购"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "neutral",
+          "policy_stance": "neutral",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity"
+        ],
+        "verification": "primary_source"
+      },
+      "assessment_id": "12778119d6191da68e1b40a6413e7fcb7ae44e4c",
+      "title": "公开市场业务交易公告 [2026]第193号",
+      "url": "https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125431/125475/2026100808585348687/index.html",
+      "source_name": "pbc_omo",
+      "published_at": "2026-10-08T00:00:00+08:00",
+      "available_at": "2026-10-17T10:08:47+00:00",
+      "document_metadata": {
+        "list_url": "https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125431/125475/index.html",
+        "publication_precision": "day",
+        "publisher": "pbc.gov.cn"
+      },
+      "matched_task_ids": [
+        "rates-liquidity"
+      ]
+    },
+    {
+      "document_id": "262dc4b5af87ff3c166a20ed54f5803bceb75feb",
+      "event_cluster_id": "909c326a3bce47ddf3188ffc",
+      "event_type": "policy_liquidity",
+      "severity": "low",
+      "policy_stance": "neutral",
+      "bond_impact": "neutral",
+      "confidence": 0.47000000000000003,
+      "evidence": [
+        "2026年10月9日中国人民银行以固定利率、数量招标方式开展了20亿元7天期逆回购操作，全额满足了一级交易商需求",
+        "逆回购操作情况"
+      ],
+      "affected_assets": [
+        "CGB"
+      ],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 0.0,
+        "liquidity": 1.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:47+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 79,
+            "start": 23,
+            "status": "asserted",
+            "text": "2026年10月9日中国人民银行以固定利率、数量招标方式开展了20亿元7天期逆回购操作，全额满足了一级交易商需求"
+          },
+          {
+            "end": 95,
+            "start": 88,
+            "status": "asserted",
+            "text": "逆回购操作情况"
+          },
+          {
+            "end": 103,
+            "start": 99,
+            "status": "asserted",
+            "text": "操作利率"
+          },
+          {
+            "end": 146,
+            "start": 131,
+            "status": "asserted",
+            "text": "中国人民银行公开市场业务操作室"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "中国人民银行"
+        ],
+        "evidence_url": "https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125431/125475/2026100908472888323/index.html",
+        "fact_status": "asserted",
+        "facts": [
+          {
+            "end": 28,
+            "start": 23,
+            "text": "2026年"
+          },
+          {
+            "end": 58,
+            "start": 54,
+            "text": "20亿元"
+          },
+          {
+            "end": 61,
+            "start": 58,
+            "text": "7天期"
+          },
+          {
+            "end": 114,
+            "start": 112,
+            "text": "7天"
+          },
+          {
+            "end": 120,
+            "start": 115,
+            "text": "1.40%"
+          },
+          {
+            "end": 125,
+            "start": 121,
+            "text": "20亿元"
+          },
+          {
+            "end": 130,
+            "start": 126,
+            "text": "20亿元"
+          }
+        ],
+        "matched_keywords": [
+          "逆回购"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "neutral",
+          "policy_stance": "neutral",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity"
+        ],
+        "verification": "primary_source"
+      },
+      "assessment_id": "aba82731f759ec70b49817d102f57a0080e3c9a2",
+      "title": "公开市场业务交易公告 [2026]第194号",
+      "url": "https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125431/125475/2026100908472888323/index.html",
+      "source_name": "pbc_omo",
+      "published_at": "2026-10-09T00:00:00+08:00",
+      "available_at": "2026-10-17T10:08:47+00:00",
+      "document_metadata": {
+        "list_url": "https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125431/125475/index.html",
+        "publication_precision": "day",
+        "publisher": "pbc.gov.cn"
+      },
+      "matched_task_ids": [
+        "rates-liquidity"
+      ]
+    },
+    {
+      "document_id": "fdadfeef6aab27a5bace8b3f6aa6594b297eca33",
+      "event_cluster_id": "4610986e57673db47834910c",
+      "event_type": "policy_liquidity",
+      "severity": "low",
+      "policy_stance": "neutral",
+      "bond_impact": "neutral",
+      "confidence": 0.47000000000000003,
+      "evidence": [
+        "根据公开市场业务一级交易商的需求，2026年10月10日7天期逆回购操作量为零",
+        "逆回购操作情况"
+      ],
+      "affected_assets": [
+        "CGB"
+      ],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 0.0,
+        "liquidity": 1.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:47+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 62,
+            "start": 23,
+            "status": "asserted",
+            "text": "根据公开市场业务一级交易商的需求，2026年10月10日7天期逆回购操作量为零"
+          },
+          {
+            "end": 78,
+            "start": 71,
+            "status": "asserted",
+            "text": "逆回购操作情况"
+          },
+          {
+            "end": 116,
+            "start": 101,
+            "status": "asserted",
+            "text": "中国人民银行公开市场业务操作室"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "中国人民银行"
+        ],
+        "evidence_url": "https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125431/125475/2026101008463186617/index.html",
+        "fact_status": "asserted",
+        "facts": [
+          {
+            "end": 45,
+            "start": 40,
+            "text": "2026年"
+          },
+          {
+            "end": 54,
+            "start": 51,
+            "text": "7天期"
+          },
+          {
+            "end": 92,
+            "start": 90,
+            "text": "7天"
+          },
+          {
+            "end": 96,
+            "start": 93,
+            "text": "0亿元"
+          },
+          {
+            "end": 100,
+            "start": 97,
+            "text": "0亿元"
+          }
+        ],
+        "matched_keywords": [
+          "逆回购"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "neutral",
+          "policy_stance": "neutral",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity"
+        ],
+        "verification": "primary_source"
+      },
+      "assessment_id": "30f7ea41c1962792ce4582ca8988f1c95233e059",
+      "title": "公开市场业务交易公告 [2026]第195号",
+      "url": "https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125431/125475/2026101008463186617/index.html",
+      "source_name": "pbc_omo",
+      "published_at": "2026-10-10T00:00:00+08:00",
+      "available_at": "2026-10-17T10:08:47+00:00",
+      "document_metadata": {
+        "list_url": "https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125431/125475/index.html",
+        "publication_precision": "day",
+        "publisher": "pbc.gov.cn"
+      },
+      "matched_task_ids": [
+        "rates-liquidity"
+      ]
+    },
+    {
+      "document_id": "83a24adf5f678f825b43726acc7af28df8bcf7c3",
+      "event_cluster_id": "1bada1d06ec8fd1d35f40fb8",
+      "event_type": "policy_liquidity",
+      "severity": "low",
+      "policy_stance": "neutral",
+      "bond_impact": "neutral",
+      "confidence": 0.47000000000000003,
+      "evidence": [
+        "2026年10月12日中国人民银行以固定利率、数量招标方式开展了500亿元7天期逆回购操作，全额满足了一级交易商需求",
+        "逆回购操作情况"
+      ],
+      "affected_assets": [
+        "CGB"
+      ],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 0.0,
+        "liquidity": 1.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:47+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 81,
+            "start": 23,
+            "status": "asserted",
+            "text": "2026年10月12日中国人民银行以固定利率、数量招标方式开展了500亿元7天期逆回购操作，全额满足了一级交易商需求"
+          },
+          {
+            "end": 97,
+            "start": 90,
+            "status": "asserted",
+            "text": "逆回购操作情况"
+          },
+          {
+            "end": 105,
+            "start": 101,
+            "status": "asserted",
+            "text": "操作利率"
+          },
+          {
+            "end": 150,
+            "start": 135,
+            "status": "asserted",
+            "text": "中国人民银行公开市场业务操作室"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "中国人民银行"
+        ],
+        "evidence_url": "https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125431/125475/2026101208533774222/index.html",
+        "fact_status": "asserted",
+        "facts": [
+          {
+            "end": 28,
+            "start": 23,
+            "text": "2026年"
+          },
+          {
+            "end": 60,
+            "start": 55,
+            "text": "500亿元"
+          },
+          {
+            "end": 63,
+            "start": 60,
+            "text": "7天期"
+          },
+          {
+            "end": 116,
+            "start": 114,
+            "text": "7天"
+          },
+          {
+            "end": 122,
+            "start": 117,
+            "text": "1.40%"
+          },
+          {
+            "end": 128,
+            "start": 123,
+            "text": "500亿元"
+          },
+          {
+            "end": 134,
+            "start": 129,
+            "text": "500亿元"
+          }
+        ],
+        "matched_keywords": [
+          "逆回购"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "neutral",
+          "policy_stance": "neutral",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity"
+        ],
+        "verification": "primary_source"
+      },
+      "assessment_id": "7080d09cb108a2edd63e2f2623e2264ebd7f9828",
+      "title": "公开市场业务交易公告 [2026]第196号",
+      "url": "https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125431/125475/2026101208533774222/index.html",
+      "source_name": "pbc_omo",
+      "published_at": "2026-10-12T00:00:00+08:00",
+      "available_at": "2026-10-17T10:08:47+00:00",
+      "document_metadata": {
+        "list_url": "https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125431/125475/index.html",
+        "publication_precision": "day",
+        "publisher": "pbc.gov.cn"
+      },
+      "matched_task_ids": [
+        "rates-liquidity"
+      ]
+    },
+    {
+      "document_id": "76bb8bd1100cfd93f112e12ad881281fde4fbb81",
+      "event_cluster_id": "a9873246dfd0addc204e03ec",
+      "event_type": "policy_liquidity",
+      "severity": "low",
+      "policy_stance": "neutral",
+      "bond_impact": "neutral",
+      "confidence": 0.47000000000000003,
+      "evidence": [
+        "2026年10月13日中国人民银行以固定利率、数量招标方式开展了650亿元7天期逆回购操作，全额满足了一级交易商需求",
+        "逆回购操作情况"
+      ],
+      "affected_assets": [
+        "CGB"
+      ],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 0.0,
+        "liquidity": 1.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:47+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 81,
+            "start": 23,
+            "status": "asserted",
+            "text": "2026年10月13日中国人民银行以固定利率、数量招标方式开展了650亿元7天期逆回购操作，全额满足了一级交易商需求"
+          },
+          {
+            "end": 97,
+            "start": 90,
+            "status": "asserted",
+            "text": "逆回购操作情况"
+          },
+          {
+            "end": 105,
+            "start": 101,
+            "status": "asserted",
+            "text": "操作利率"
+          },
+          {
+            "end": 150,
+            "start": 135,
+            "status": "asserted",
+            "text": "中国人民银行公开市场业务操作室"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "中国人民银行"
+        ],
+        "evidence_url": "https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125431/125475/2026101308450595979/index.html",
+        "fact_status": "asserted",
+        "facts": [
+          {
+            "end": 28,
+            "start": 23,
+            "text": "2026年"
+          },
+          {
+            "end": 60,
+            "start": 55,
+            "text": "650亿元"
+          },
+          {
+            "end": 63,
+            "start": 60,
+            "text": "7天期"
+          },
+          {
+            "end": 116,
+            "start": 114,
+            "text": "7天"
+          },
+          {
+            "end": 122,
+            "start": 117,
+            "text": "1.40%"
+          },
+          {
+            "end": 128,
+            "start": 123,
+            "text": "650亿元"
+          },
+          {
+            "end": 134,
+            "start": 129,
+            "text": "650亿元"
+          }
+        ],
+        "matched_keywords": [
+          "逆回购"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "neutral",
+          "policy_stance": "neutral",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity"
+        ],
+        "verification": "primary_source"
+      },
+      "assessment_id": "1d767b628445c532efb7cdf413e481de3abb4883",
+      "title": "公开市场业务交易公告 [2026]第197号",
+      "url": "https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125431/125475/2026101308450595979/index.html",
+      "source_name": "pbc_omo",
+      "published_at": "2026-10-13T00:00:00+08:00",
+      "available_at": "2026-10-17T10:08:47+00:00",
+      "document_metadata": {
+        "list_url": "https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125431/125475/index.html",
+        "publication_precision": "day",
+        "publisher": "pbc.gov.cn"
+      },
+      "matched_task_ids": [
+        "rates-liquidity"
+      ]
+    },
+    {
+      "document_id": "08c5c6debc66f1bcd5e1338473b2c951fec8da85",
+      "event_cluster_id": "9318fc1f67245e1c249997e7",
+      "event_type": "policy_liquidity",
+      "severity": "low",
+      "policy_stance": "neutral",
+      "bond_impact": "neutral",
+      "confidence": 0.47000000000000003,
+      "evidence": [
+        "2026年10月14日中国人民银行以固定利率、数量招标方式开展了560亿元7天期逆回购操作，全额满足了一级交易商需求",
+        "逆回购操作情况"
+      ],
+      "affected_assets": [
+        "CGB"
+      ],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 0.0,
+        "liquidity": 1.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:47+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 81,
+            "start": 23,
+            "status": "asserted",
+            "text": "2026年10月14日中国人民银行以固定利率、数量招标方式开展了560亿元7天期逆回购操作，全额满足了一级交易商需求"
+          },
+          {
+            "end": 97,
+            "start": 90,
+            "status": "asserted",
+            "text": "逆回购操作情况"
+          },
+          {
+            "end": 105,
+            "start": 101,
+            "status": "asserted",
+            "text": "操作利率"
+          },
+          {
+            "end": 150,
+            "start": 135,
+            "status": "asserted",
+            "text": "中国人民银行公开市场业务操作室"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "中国人民银行"
+        ],
+        "evidence_url": "https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125431/125475/2026101408462382153/index.html",
+        "fact_status": "asserted",
+        "facts": [
+          {
+            "end": 28,
+            "start": 23,
+            "text": "2026年"
+          },
+          {
+            "end": 60,
+            "start": 55,
+            "text": "560亿元"
+          },
+          {
+            "end": 63,
+            "start": 60,
+            "text": "7天期"
+          },
+          {
+            "end": 116,
+            "start": 114,
+            "text": "7天"
+          },
+          {
+            "end": 122,
+            "start": 117,
+            "text": "1.40%"
+          },
+          {
+            "end": 128,
+            "start": 123,
+            "text": "560亿元"
+          },
+          {
+            "end": 134,
+            "start": 129,
+            "text": "560亿元"
+          }
+        ],
+        "matched_keywords": [
+          "逆回购"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "neutral",
+          "policy_stance": "neutral",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity"
+        ],
+        "verification": "primary_source"
+      },
+      "assessment_id": "cf095f5a158ae062fbae93f67ca3da5f5bb1571b",
+      "title": "公开市场业务交易公告 [2026]第198号",
+      "url": "https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125431/125475/2026101408462382153/index.html",
+      "source_name": "pbc_omo",
+      "published_at": "2026-10-14T00:00:00+08:00",
+      "available_at": "2026-10-17T10:08:47+00:00",
+      "document_metadata": {
+        "list_url": "https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125431/125475/index.html",
+        "publication_precision": "day",
+        "publisher": "pbc.gov.cn"
+      },
+      "matched_task_ids": [
+        "rates-liquidity"
+      ]
+    },
+    {
+      "document_id": "29c0ac5d5e028ced6afa03dc1df95ece151fb163",
+      "event_cluster_id": "9c26d9d3cf1c84efb325eea9",
+      "event_type": "policy_liquidity",
+      "severity": "low",
+      "policy_stance": "neutral",
+      "bond_impact": "neutral",
+      "confidence": 0.47000000000000003,
+      "evidence": [
+        "2026年10月15日中国人民银行以固定利率、数量招标方式开展了450亿元7天期逆回购操作，全额满足了一级交易商需求",
+        "逆回购操作情况"
+      ],
+      "affected_assets": [
+        "CGB"
+      ],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 0.0,
+        "liquidity": 1.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:47+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 81,
+            "start": 23,
+            "status": "asserted",
+            "text": "2026年10月15日中国人民银行以固定利率、数量招标方式开展了450亿元7天期逆回购操作，全额满足了一级交易商需求"
+          },
+          {
+            "end": 97,
+            "start": 90,
+            "status": "asserted",
+            "text": "逆回购操作情况"
+          },
+          {
+            "end": 105,
+            "start": 101,
+            "status": "asserted",
+            "text": "操作利率"
+          },
+          {
+            "end": 150,
+            "start": 135,
+            "status": "asserted",
+            "text": "中国人民银行公开市场业务操作室"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "中国人民银行"
+        ],
+        "evidence_url": "https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125431/125475/2026101508552484698/index.html",
+        "fact_status": "asserted",
+        "facts": [
+          {
+            "end": 28,
+            "start": 23,
+            "text": "2026年"
+          },
+          {
+            "end": 60,
+            "start": 55,
+            "text": "450亿元"
+          },
+          {
+            "end": 63,
+            "start": 60,
+            "text": "7天期"
+          },
+          {
+            "end": 116,
+            "start": 114,
+            "text": "7天"
+          },
+          {
+            "end": 122,
+            "start": 117,
+            "text": "1.40%"
+          },
+          {
+            "end": 128,
+            "start": 123,
+            "text": "450亿元"
+          },
+          {
+            "end": 134,
+            "start": 129,
+            "text": "450亿元"
+          }
+        ],
+        "matched_keywords": [
+          "逆回购"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "neutral",
+          "policy_stance": "neutral",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity"
+        ],
+        "verification": "primary_source"
+      },
+      "assessment_id": "e85b1c26911881d4d7367a8c8dc8aee7924bd320",
+      "title": "公开市场业务交易公告 [2026]第199号",
+      "url": "https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125431/125475/2026101508552484698/index.html",
+      "source_name": "pbc_omo",
+      "published_at": "2026-10-15T00:00:00+08:00",
+      "available_at": "2026-10-17T10:08:47+00:00",
+      "document_metadata": {
+        "list_url": "https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125431/125475/index.html",
+        "publication_precision": "day",
+        "publisher": "pbc.gov.cn"
+      },
+      "matched_task_ids": [
+        "rates-liquidity"
+      ]
+    },
+    {
+      "document_id": "52ad5b6e90015973603f478975d0535170244b90",
+      "event_cluster_id": "e46d383bea2e8c53614bf721",
+      "event_type": "policy_liquidity",
+      "severity": "low",
+      "policy_stance": "neutral",
+      "bond_impact": "neutral",
+      "confidence": 0.47000000000000003,
+      "evidence": [
+        "2026年10月16日中国人民银行以固定利率、数量招标方式开展了600亿元7天期逆回购操作，全额满足了一级交易商需求",
+        "逆回购操作情况"
+      ],
+      "affected_assets": [
+        "CGB"
+      ],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 0.0,
+        "liquidity": 1.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:47+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 81,
+            "start": 23,
+            "status": "asserted",
+            "text": "2026年10月16日中国人民银行以固定利率、数量招标方式开展了600亿元7天期逆回购操作，全额满足了一级交易商需求"
+          },
+          {
+            "end": 97,
+            "start": 90,
+            "status": "asserted",
+            "text": "逆回购操作情况"
+          },
+          {
+            "end": 105,
+            "start": 101,
+            "status": "asserted",
+            "text": "操作利率"
+          },
+          {
+            "end": 150,
+            "start": 135,
+            "status": "asserted",
+            "text": "中国人民银行公开市场业务操作室"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "中国人民银行"
+        ],
+        "evidence_url": "https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125431/125475/2026101608495821786/index.html",
+        "fact_status": "asserted",
+        "facts": [
+          {
+            "end": 28,
+            "start": 23,
+            "text": "2026年"
+          },
+          {
+            "end": 60,
+            "start": 55,
+            "text": "600亿元"
+          },
+          {
+            "end": 63,
+            "start": 60,
+            "text": "7天期"
+          },
+          {
+            "end": 116,
+            "start": 114,
+            "text": "7天"
+          },
+          {
+            "end": 122,
+            "start": 117,
+            "text": "1.40%"
+          },
+          {
+            "end": 128,
+            "start": 123,
+            "text": "600亿元"
+          },
+          {
+            "end": 134,
+            "start": 129,
+            "text": "600亿元"
+          }
+        ],
+        "matched_keywords": [
+          "逆回购"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "neutral",
+          "policy_stance": "neutral",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity"
+        ],
+        "verification": "primary_source"
+      },
+      "assessment_id": "95f52bc6856d081bcea16f26f8d940f04ce5623e",
+      "title": "公开市场业务交易公告 [2026]第200号",
+      "url": "https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125431/125475/2026101608495821786/index.html",
+      "source_name": "pbc_omo",
+      "published_at": "2026-10-16T00:00:00+08:00",
+      "available_at": "2026-10-17T10:08:47+00:00",
+      "document_metadata": {
+        "list_url": "https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125431/125475/index.html",
+        "publication_precision": "day",
+        "publisher": "pbc.gov.cn"
+      },
+      "matched_task_ids": [
+        "rates-liquidity"
+      ]
+    },
+    {
+      "document_id": "5df45557457095ebc6b60f9385f81c3f93303612",
+      "event_cluster_id": "dfe81c52b92b6fe3cac5de82",
+      "event_type": "market_news",
+      "severity": "low",
+      "policy_stance": "neutral",
+      "bond_impact": "neutral",
+      "confidence": 0.47000000000000003,
+      "evidence": [
+        "双方就当前经济金融形势、中法经济金融合作等议题交换了意见"
+      ],
+      "affected_assets": [
+        "CGB"
+      ],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 1.0,
+        "inflation": 0.0,
+        "liquidity": 0.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:36+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 23,
+            "start": 0,
+            "status": "asserted",
+            "text": "中国人民银行行长潘功胜会见法国总统外事顾问博纳"
+          },
+          {
+            "end": 58,
+            "start": 24,
+            "status": "asserted",
+            "text": "2026年10月9日，中国人民银行行长潘功胜会见法国总统外事顾问博纳"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "中国人民银行"
+        ],
+        "evidence_url": "https://www.pbc.gov.cn/goutongjiaoliu/113456/113469/2026101011293518009/index.html",
+        "fact_status": "asserted",
+        "facts": [
+          {
+            "end": 29,
+            "start": 24,
+            "text": "2026年"
+          }
+        ],
+        "matched_keywords": [
+          "经济"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "neutral",
+          "policy_stance": "neutral",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity"
+        ],
+        "verification": "primary_source"
+      },
+      "assessment_id": "41837597ac81a02b71a600143a6782032c329cee",
+      "title": "中国人民银行行长潘功胜会见法国总统外事顾问博纳",
+      "url": "https://www.pbc.gov.cn/goutongjiaoliu/113456/113469/2026101011293518009/index.html",
+      "source_name": "pbc_news",
+      "published_at": "2026-10-10T00:00:00+08:00",
+      "available_at": "2026-10-17T10:08:36+00:00",
+      "document_metadata": {
+        "list_url": "https://www.pbc.gov.cn/goutongjiaoliu/113456/113469/index.html",
+        "publication_precision": "day",
+        "publisher": "pbc.gov.cn"
+      },
+      "matched_task_ids": [
+        "rates-liquidity"
+      ]
+    },
+    {
+      "document_id": "2b798918f7739dff8ff2a51eaa6275fc4f813186",
+      "event_cluster_id": "edeaa2030e1afbd016aa1ea6",
+      "event_type": "policy_liquidity",
+      "severity": "low",
+      "policy_stance": "easing",
+      "bond_impact": "neutral",
+      "confidence": 0.53,
+      "evidence": [
+        "一、社会融资规模存量同比增长7.1%",
+        "初步统计，2026年9月末社会融资规模存量为468.17万亿元，同比增长7.1%",
+        "其中，对实体经济发放的人民币贷款余额279.9万亿元，同比增长4.8%"
+      ],
+      "affected_assets": [
+        "CREDIT_BOND"
+      ],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 1.0,
+        "inflation": 0.0,
+        "liquidity": 1.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:36+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 249,
+            "start": 226,
+            "status": "asserted",
+            "text": "企业债券余额36.62万亿元，同比增长9.3%"
+          },
+          {
+            "end": 275,
+            "start": 250,
+            "status": "asserted",
+            "text": "政府债券余额105.23万亿元，同比增长13.7%"
+          },
+          {
+            "end": 482,
+            "start": 459,
+            "status": "asserted",
+            "text": "企业债券余额占比7.8%，同比高0.1个百分点"
+          },
+          {
+            "end": 507,
+            "start": 483,
+            "status": "asserted",
+            "text": "政府债券余额占比22.5%，同比高1.3个百分点"
+          },
+          {
+            "end": 787,
+            "start": 762,
+            "status": "asserted",
+            "text": "企业债券净融资2.75万亿元，同比多1.18万亿元"
+          },
+          {
+            "end": 813,
+            "start": 788,
+            "status": "asserted",
+            "text": "政府债券净融资10.3万亿元，同比少1.16万亿元"
+          },
+          {
+            "end": 963,
+            "start": 948,
+            "status": "asserted",
+            "text": "前三季度净投放现金9221亿元"
+          },
+          {
+            "end": 1514,
+            "start": 1465,
+            "status": "asserted",
+            "text": "六、9月份银行间人民币市场同业拆借月加权平均利率为1.4%，质押式债券回购月加权平均利率为1.4%"
+          },
+          {
+            "end": 1676,
+            "start": 1630,
+            "status": "asserted",
+            "text": "9月份同业拆借加权平均利率为1.4%，比上月高0.02个百分点，比上年同期低0.05个百分点"
+          },
+          {
+            "end": 1714,
+            "start": 1677,
+            "status": "asserted",
+            "text": "质押式回购加权平均利率为1.4%，与上月持平，比上年同期低0.06个百分点"
+          },
+          {
+            "end": 2105,
+            "start": 2042,
+            "status": "asserted",
+            "text": "数据来源于中国人民银行、国家金融监督管理总局、中国证券监督管理委员会、中央国债登记结算有限责任公司、银行间市场交易商协会等部门"
+          },
+          {
+            "end": 2201,
+            "start": 2139,
+            "status": "asserted",
+            "text": "注4：自2023年1月起，中国人民银行将消费金融公司、理财公司和金融资产投资公司等三类银行业非存款类金融机构纳入金融统计范围"
+          },
+          {
+            "end": 2286,
+            "start": 2244,
+            "status": "asserted",
+            "text": "注5：中国人民银行自统计2025年1月份数据起，启用新修订的狭义货币（M1）统计口径"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "中国人民银行"
+        ],
+        "evidence_url": "https://www.pbc.gov.cn/goutongjiaoliu/113456/113469/2026101415422529740/index.html",
+        "fact_status": "asserted",
+        "facts": [
+          {
+            "end": 5,
+            "start": 0,
+            "text": "2026年"
+          },
+          {
+            "end": 36,
+            "start": 32,
+            "text": "7.1%"
+          },
+          {
+            "end": 47,
+            "start": 42,
+            "text": "2026年"
+          },
+          {
+            "end": 68,
+            "start": 59,
+            "text": "468.17万亿元"
+          },
+          {
+            "end": 77,
+            "start": 73,
+            "text": "7.1%"
+          },
+          {
+            "end": 104,
+            "start": 96,
+            "text": "279.9万亿元"
+          },
+          {
+            "end": 113,
+            "start": 109,
+            "text": "4.8%"
+          },
+          {
+            "end": 140,
+            "start": 133,
+            "text": "1.25万亿元"
+          },
+          {
+            "end": 149,
+            "start": 145,
+            "text": "6.4%"
+          },
+          {
+            "end": 164,
+            "start": 156,
+            "text": "11.34万亿元"
+          },
+          {
+            "end": 173,
+            "start": 169,
+            "text": "1.5%"
+          },
+          {
+            "end": 187,
+            "start": 180,
+            "text": "4.53万亿元"
+          },
+          {
+            "end": 196,
+            "start": 192,
+            "text": "0.7%"
+          },
+          {
+            "end": 216,
+            "start": 209,
+            "text": "2.22万亿元"
+          },
+          {
+            "end": 225,
+            "start": 221,
+            "text": "8.8%"
+          },
+          {
+            "end": 240,
+            "start": 232,
+            "text": "36.62万亿元"
+          },
+          {
+            "end": 249,
+            "start": 245,
+            "text": "9.3%"
+          },
+          {
+            "end": 265,
+            "start": 256,
+            "text": "105.23万亿元"
+          },
+          {
+            "end": 275,
+            "start": 270,
+            "text": "13.7%"
+          },
+          {
+            "end": 295,
+            "start": 287,
+            "text": "12.73万亿元"
+          },
+          {
+            "end": 304,
+            "start": 300,
+            "text": "5.8%"
+          },
+          {
+            "end": 346,
+            "start": 341,
+            "text": "59.8%"
+          },
+          {
+            "end": 357,
+            "start": 350,
+            "text": "1.3个百分点"
+          },
+          {
+            "end": 383,
+            "start": 379,
+            "text": "0.3%"
+          },
+          {
+            "end": 401,
+            "start": 397,
+            "text": "2.4%"
+          },
+          {
+            "end": 412,
+            "start": 405,
+            "text": "0.2个百分点"
+          },
+          {
+            "end": 423,
+            "start": 421,
+            "text": "1%"
+          },
+          {
+            "end": 447,
+            "start": 443,
+            "text": "0.5%"
+          },
+          {
+            "end": 458,
+            "start": 451,
+            "text": "0.1个百分点"
+          },
+          {
+            "end": 471,
+            "start": 467,
+            "text": "7.8%"
+          },
+          {
+            "end": 482,
+            "start": 475,
+            "text": "0.1个百分点"
+          },
+          {
+            "end": 496,
+            "start": 491,
+            "text": "22.5%"
+          },
+          {
+            "end": 507,
+            "start": 500,
+            "text": "1.3个百分点"
+          },
+          {
+            "end": 525,
+            "start": 521,
+            "text": "2.7%"
+          },
+          {
+            "end": 536,
+            "start": 529,
+            "text": "0.1个百分点"
+          },
+          {
+            "end": 563,
+            "start": 555,
+            "text": "27.46万亿元"
+          },
+          {
+            "end": 574,
+            "start": 569,
+            "text": "2026年"
+          },
+          {
+            "end": 597,
+            "start": 589,
+            "text": "27.46万亿元"
+          },
+          {
+            "end": 611,
+            "start": 604,
+            "text": "2.63万亿元"
+          },
+          {
+            "end": 637,
+            "start": 630,
+            "text": "11.5万亿元"
+          }
+        ],
+        "matched_keywords": [
+          "企业债",
+          "净投放",
+          "增长",
+          "投资",
+          "消费",
+          "经济"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "neutral",
+          "policy_stance": "easing",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity",
+          "credit-risk"
+        ],
+        "verification": "primary_source"
+      },
+      "assessment_id": "f35cd9a45956e9be35323d42386dc9fab7e36867",
+      "title": "2026年前三季度金融统计数据报告",
+      "url": "https://www.pbc.gov.cn/goutongjiaoliu/113456/113469/2026101415422529740/index.html",
+      "source_name": "pbc_news",
+      "published_at": "2026-10-14T00:00:00+08:00",
+      "available_at": "2026-10-17T10:08:36+00:00",
+      "document_metadata": {
+        "list_url": "https://www.pbc.gov.cn/goutongjiaoliu/113456/113469/index.html",
+        "publication_precision": "day",
+        "publisher": "pbc.gov.cn"
+      },
+      "matched_task_ids": [
+        "rates-liquidity",
+        "credit-risk"
+      ]
+    },
+    {
+      "document_id": "b80e6f0c3a77ae039ad3801f2d09ac4b1671cf0a",
+      "event_cluster_id": "c3d4962e798b6fb554e4acc2",
+      "event_type": "market_news",
+      "severity": "low",
+      "policy_stance": "neutral",
+      "bond_impact": "neutral",
+      "confidence": 0.47000000000000003,
+      "evidence": [
+        "会上，各方就近期经济金融形势等议题交换了意见"
+      ],
+      "affected_assets": [
+        "CGB"
+      ],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 1.0,
+        "inflation": 0.0,
+        "liquidity": 0.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:36+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 18,
+            "start": 0,
+            "status": "asserted",
+            "text": "第十五届中日韩央行行长会议在曼谷举行"
+          },
+          {
+            "end": 49,
+            "start": 19,
+            "status": "asserted",
+            "text": "2026年10月14日，第十五届中日韩央行行长会议在曼谷举行"
+          },
+          {
+            "end": 90,
+            "start": 50,
+            "status": "asserted",
+            "text": "韩国银行行长申铉松主持会议，中国人民银行行长潘功胜和日本银行行长植田和男出席会议"
+          },
+          {
+            "end": 144,
+            "start": 115,
+            "status": "asserted",
+            "text": "第十六届中日韩央行行长会议将由中国人民银行于2027年举办"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "中国人民银行",
+          "央行"
+        ],
+        "evidence_url": "https://www.pbc.gov.cn/goutongjiaoliu/113456/113469/2026101418371517078/index.html",
+        "fact_status": "asserted",
+        "facts": [
+          {
+            "end": 24,
+            "start": 19,
+            "text": "2026年"
+          },
+          {
+            "end": 142,
+            "start": 137,
+            "text": "2027年"
+          }
+        ],
+        "matched_keywords": [
+          "经济"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "neutral",
+          "policy_stance": "neutral",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity"
+        ],
+        "verification": "primary_source"
+      },
+      "assessment_id": "50dc5c3d8206092e50f8244c8254b214564424a8",
+      "title": "第十五届中日韩央行行长会议在曼谷举行",
+      "url": "https://www.pbc.gov.cn/goutongjiaoliu/113456/113469/2026101418371517078/index.html",
+      "source_name": "pbc_news",
+      "published_at": "2026-10-14T00:00:00+08:00",
+      "available_at": "2026-10-17T10:08:36+00:00",
+      "document_metadata": {
+        "list_url": "https://www.pbc.gov.cn/goutongjiaoliu/113456/113469/index.html",
+        "publication_precision": "day",
+        "publisher": "pbc.gov.cn"
+      },
+      "matched_task_ids": [
+        "rates-liquidity"
+      ]
+    },
+    {
+      "document_id": "9422913244a9b758cedc262b06d25bea259c0018",
+      "event_cluster_id": "f3dd7b8210a92956effabd21",
+      "event_type": "market_news",
+      "severity": "low",
+      "policy_stance": "neutral",
+      "bond_impact": "neutral",
+      "confidence": 0.49,
+      "evidence": [
+        "各方围绕投资往来、跨境支付、深化中国人民银行与海合会国家央行合作等议题进行了深入交流",
+        "当前国际形势复杂多变，进一步深化双方经济金融合作具有重要意义",
+        "双方将继续推进本币合作，深化跨境支付合作，拓展双向投资，加强金融市场基础设施联通，并在国际经济金融事务中加强沟通协调"
+      ],
+      "affected_assets": [
+        "CGB"
+      ],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 1.0,
+        "inflation": 0.0,
+        "liquidity": 0.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:36+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 30,
+            "start": 0,
+            "status": "asserted",
+            "text": "潘功胜行长出席中国与海合会第四次央行行长会并举行系列双边会见"
+          },
+          {
+            "end": 94,
+            "start": 31,
+            "status": "asserted",
+            "text": "2026年10月14日，中国人民银行行长潘功胜在泰国曼谷出席中国与海湾阿拉伯国家合作委员会（简称海合会）成员国第四次央行行长会"
+          },
+          {
+            "end": 137,
+            "start": 95,
+            "status": "asserted",
+            "text": "各方围绕投资往来、跨境支付、深化中国人民银行与海合会国家央行合作等议题进行了深入交流"
+          },
+          {
+            "end": 167,
+            "start": 139,
+            "status": "asserted",
+            "text": "与会各国央行行长表示，中国与海合会国家经贸和金融联系密切"
+          },
+          {
+            "end": 347,
+            "start": 259,
+            "status": "asserted",
+            "text": "会议期间，潘功胜分别会见了阿联酋央行行长哈立德、卡塔尔央行行长班达尔、阿曼央行行长艾哈迈德和财长苏尔坦，就双边金融合作等议题交换了意见，并与卡塔尔央行行长续签了双边本币互换协议"
+          },
+          {
+            "end": 381,
+            "start": 366,
+            "status": "asserted",
+            "text": "中国与海合会成员国央行行长合照"
+          },
+          {
+            "end": 416,
+            "start": 382,
+            "status": "asserted",
+            "text": "中国人民银行行长潘功胜、副行长宣昌能出席中国与海合会第四次央行行长会"
+          },
+          {
+            "end": 443,
+            "start": 417,
+            "status": "asserted",
+            "text": "中国人民银行行长潘功胜与阿联酋央行行长哈立德举行会谈"
+          },
+          {
+            "end": 476,
+            "start": 444,
+            "status": "asserted",
+            "text": "中国人民银行行长潘功胜与阿曼央行行长艾哈迈德和财长苏尔坦举行会谈"
+          },
+          {
+            "end": 509,
+            "start": 477,
+            "status": "asserted",
+            "text": "中国人民银行行长潘功胜与卡塔尔央行行长班达尔续签双边本币互换协议"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "中国人民银行",
+          "央行"
+        ],
+        "evidence_url": "https://www.pbc.gov.cn/goutongjiaoliu/113456/113469/2026101510063698366/index.html",
+        "fact_status": "asserted",
+        "facts": [
+          {
+            "end": 36,
+            "start": 31,
+            "text": "2026年"
+          }
+        ],
+        "matched_keywords": [
+          "投资",
+          "经济"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "neutral",
+          "policy_stance": "neutral",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity"
+        ],
+        "verification": "primary_source"
+      },
+      "assessment_id": "73695f758055f7372e0bdcb57019f0f75db1c0c6",
+      "title": "潘功胜行长出席中国与海合会第四次央行行长会并举行系列双边会见",
+      "url": "https://www.pbc.gov.cn/goutongjiaoliu/113456/113469/2026101510063698366/index.html",
+      "source_name": "pbc_news",
+      "published_at": "2026-10-15T00:00:00+08:00",
+      "available_at": "2026-10-17T10:08:36+00:00",
+      "document_metadata": {
+        "list_url": "https://www.pbc.gov.cn/goutongjiaoliu/113456/113469/index.html",
+        "publication_precision": "day",
+        "publisher": "pbc.gov.cn"
+      },
+      "matched_task_ids": [
+        "rates-liquidity"
+      ]
+    },
+    {
+      "document_id": "8dc4bd13822b4b4b1e1fb4134f12e059b053b254",
+      "event_cluster_id": "9bd0983dbeb9da9b7f1f017b",
+      "event_type": "market_news",
+      "severity": "low",
+      "policy_stance": "unclear",
+      "bond_impact": "unclear",
+      "confidence": 0.4,
+      "evidence": [
+        "会议讨论了全球经济形势与展望、金融部门改革等议题",
+        "与会各方认为世界经济总体保持韧性，但仍面临多重风险挑战",
+        "贸易摩擦和保护主义通过影响供应链、推升通胀、扰乱市场预期等因素拖累全球经济"
+      ],
+      "affected_assets": [
+        "CGB"
+      ],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 0.0,
+        "liquidity": 0.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:36+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 27,
+            "start": 0,
+            "status": "asserted",
+            "text": "中国人民银行行长潘功胜出席二十国集团财长和央行行长会议"
+          },
+          {
+            "end": 74,
+            "start": 28,
+            "status": "asserted",
+            "text": "2026年10月15日，二十国集团（G20）在泰国曼谷召开今年第三次G20财长和央行行长会议"
+          },
+          {
+            "end": 135,
+            "start": 100,
+            "status": "asserted",
+            "text": "中国人民银行行长潘功胜出席会议并发言，中国人民银行副行长宣昌能参加会议"
+          },
+          {
+            "end": 202,
+            "start": 165,
+            "status": "conditional",
+            "text": "贸易摩擦和保护主义通过影响供应链、推升通胀、扰乱市场预期等因素拖累全球经济"
+          },
+          {
+            "end": 336,
+            "start": 301,
+            "status": "asserted",
+            "text": "一些国家国债市场大幅波动、人工智能相关资产估值回调风险加剧了金融脆弱性"
+          },
+          {
+            "end": 679,
+            "start": 627,
+            "status": "asserted",
+            "text": "中国人民银行将继续实施好适度宽松的货币政策，为中国经济稳定增长和金融市场的平稳运行营造良好的货币金融环境"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "中国人民银行",
+          "央行"
+        ],
+        "evidence_url": "https://www.pbc.gov.cn/goutongjiaoliu/113456/113469/2026101517581023878/index.html",
+        "fact_status": "conditional",
+        "facts": [
+          {
+            "end": 33,
+            "start": 28,
+            "text": "2026年"
+          }
+        ],
+        "matched_keywords": [
+          "增长",
+          "宽松",
+          "经济",
+          "通胀"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "unclear",
+          "policy_stance": "unclear",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity"
+        ],
+        "verification": "primary_source"
+      },
+      "assessment_id": "47b03f20e51a3ebac0ba9357c8fa1ece6797f86e",
+      "title": "中国人民银行行长潘功胜出席二十国集团财长和央行行长会议",
+      "url": "https://www.pbc.gov.cn/goutongjiaoliu/113456/113469/2026101517581023878/index.html",
+      "source_name": "pbc_news",
+      "published_at": "2026-10-15T00:00:00+08:00",
+      "available_at": "2026-10-17T10:08:36+00:00",
+      "document_metadata": {
+        "list_url": "https://www.pbc.gov.cn/goutongjiaoliu/113456/113469/index.html",
+        "publication_precision": "day",
+        "publisher": "pbc.gov.cn"
+      },
+      "matched_task_ids": [
+        "rates-liquidity"
+      ]
+    },
+    {
+      "document_id": "8c17a93b51874d786f7682f17e4408d1c8547a5c",
+      "event_cluster_id": "e64768084431927aaa6f403a",
+      "event_type": "bond_supply",
+      "severity": "medium",
+      "policy_stance": "neutral",
+      "bond_impact": "neutral",
+      "confidence": 0.53,
+      "evidence": [
+        "潘功胜指出，当前全球地缘政治风险上升，国际经济金融环境发生深刻变化，人工智能加速发展，全球投资者对多元分散配置和科技创新的投资需求持续增加",
+        "中国经济持续稳定增长，高科技产业快速发展，为人民币资产提供了坚实支撑",
+        "中国金融市场规模大，股票、债券市场规模均居世界第二位，且流动性充裕，可有效满足全球投资者多元化配置需要"
+      ],
+      "affected_assets": [
+        "CGB"
+      ],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 1.0,
+        "inflation": 0.0,
+        "liquidity": 1.0,
+        "supply": 1.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:36+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 20,
+            "start": 0,
+            "status": "asserted",
+            "text": "中国人民银行行长潘功胜出席新兴市场研讨会"
+          },
+          {
+            "end": 81,
+            "start": 21,
+            "status": "asserted",
+            "text": "2026年10月15日，在国际货币基金组织和世界银行年会举行期间，中国人民银行行长潘功胜出席新兴市场研讨会，并作主旨发言"
+          },
+          {
+            "end": 239,
+            "start": 188,
+            "status": "asserted",
+            "text": "中国金融市场规模大，股票、债券市场规模均居世界第二位，且流动性充裕，可有效满足全球投资者多元化配置需要"
+          },
+          {
+            "end": 330,
+            "start": 279,
+            "status": "asserted",
+            "text": "目前，境外投资者可通过债券通等多个渠道参与中国金融市场，并可通过回购、衍生品等交易管理流动性和对冲风险"
+          },
+          {
+            "end": 384,
+            "start": 331,
+            "status": "asserted",
+            "text": "现已有来自近80个国家和地区的1200多家境外投资者参与中国银行间债券市场，境外投资者数量占比达30%左右"
+          },
+          {
+            "end": 434,
+            "start": 385,
+            "status": "asserted",
+            "text": "同时，主权政府、国际开发机构、金融机构与企业等境外发行人，也可通过熊猫债券等方式便利开展人民币融资"
+          },
+          {
+            "end": 490,
+            "start": 435,
+            "status": "asserted",
+            "text": "当前，中国债券和股票已先后纳入国际主要指数，充分反映出全球投资者对中国金融市场长期稳定发展和持续扩大开放的信心"
+          },
+          {
+            "end": 563,
+            "start": 491,
+            "status": "asserted",
+            "text": "与此同时，离岸人民币市场也稳步发展，其中香港作为全球最大的离岸人民币业务中心，人民币投融资产品和风险管理工具不断丰富，人民币流动性供给进一步充裕"
+          },
+          {
+            "end": 659,
+            "start": 565,
+            "status": "asserted",
+            "text": "潘功胜指出，下一阶段，中国人民银行将进一步支持全球投资者和发行人参与中国金融市场，推动人民币债券成为全球广泛认可和使用的合格担保品，进一步丰富流动性管理和风险管理工具，持续提升投融资便利性"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "中国人民银行"
+        ],
+        "evidence_url": "https://www.pbc.gov.cn/goutongjiaoliu/113456/113469/2026101614165534664/index.html",
+        "fact_status": "asserted",
+        "facts": [
+          {
+            "end": 26,
+            "start": 21,
+            "text": "2026年"
+          },
+          {
+            "end": 382,
+            "start": 379,
+            "text": "30%"
+          }
+        ],
+        "matched_keywords": [
+          "供给",
+          "发行",
+          "增长",
+          "投资",
+          "流动性",
+          "经济"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "neutral",
+          "policy_stance": "neutral",
+          "severity": "medium"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity"
+        ],
+        "verification": "primary_source"
+      },
+      "assessment_id": "de9871b94d5d124e7642aa3ef84288f94d289ebf",
+      "title": "中国人民银行行长潘功胜出席新兴市场研讨会",
+      "url": "https://www.pbc.gov.cn/goutongjiaoliu/113456/113469/2026101614165534664/index.html",
+      "source_name": "pbc_news",
+      "published_at": "2026-10-16T00:00:00+08:00",
+      "available_at": "2026-10-17T10:08:36+00:00",
+      "document_metadata": {
+        "list_url": "https://www.pbc.gov.cn/goutongjiaoliu/113456/113469/index.html",
+        "publication_precision": "day",
+        "publisher": "pbc.gov.cn"
+      },
+      "matched_task_ids": [
+        "rates-liquidity"
+      ]
+    },
+    {
+      "document_id": "9f253fb18da28b024f2c98ffebd9dff24c37fcbc",
+      "event_cluster_id": "95daa871374a1267b2fc4de0",
+      "event_type": "market_news",
+      "severity": "low",
+      "policy_stance": "neutral",
+      "bond_impact": "neutral",
+      "confidence": 0.53,
+      "evidence": [
+        "中国人民银行行长潘功胜会见欧盟委员会经济和生产力委员东布罗夫斯基斯、欧洲中央银行行长拉加德、欧元集团主席皮埃拉卡基斯及欧洲有关国家央行行长",
+        "2026年10月16日，中国人民银行行长潘功胜在出席国际货币基金组织/世界银行年会期间应约会见了欧盟委员会经济与生产力委员东布罗夫斯基斯、欧洲中央银行行长拉加德和欧元集团主席皮埃拉卡基斯，就中欧宏观经济金融政策、中欧货币金融合作等议题进行了交流",
+        "潘功胜表示，全球经济失衡与全球分工格局演进、国际货币体系固有矛盾、部分国家长期高财政赤字高消费等密切相关"
+      ],
+      "affected_assets": [
+        "CGB"
+      ],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 1.0,
+        "inflation": 0.0,
+        "liquidity": 0.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:36+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 69,
+            "start": 0,
+            "status": "asserted",
+            "text": "中国人民银行行长潘功胜会见欧盟委员会经济和生产力委员东布罗夫斯基斯、欧洲中央银行行长拉加德、欧元集团主席皮埃拉卡基斯及欧洲有关国家央行行长"
+          },
+          {
+            "end": 192,
+            "start": 70,
+            "status": "asserted",
+            "text": "2026年10月16日，中国人民银行行长潘功胜在出席国际货币基金组织/世界银行年会期间应约会见了欧盟委员会经济与生产力委员东布罗夫斯基斯、欧洲中央银行行长拉加德和欧元集团主席皮埃拉卡基斯，就中欧宏观经济金融政策、中欧货币金融合作等议题进行了交流"
+          },
+          {
+            "end": 514,
+            "start": 457,
+            "status": "asserted",
+            "text": "中国愿与欧方加强协调与合作，充分发挥中欧金融工作组、中欧央行行长年度会晤等机制作用，推动中欧金融合作不断迈上新台阶"
+          },
+          {
+            "end": 751,
+            "start": 677,
+            "status": "asserted",
+            "text": "2026年10月14日至16日，潘功胜行长还分别会见了法国央行行长穆兰和瑞典央行行长特登，就全球经济和金融形势、深化双边货币金融合作等议题交换了意见"
+          },
+          {
+            "end": 770,
+            "start": 752,
+            "status": "asserted",
+            "text": "中国人民银行副行长宣昌能参加上述会见"
+          },
+          {
+            "end": 796,
+            "start": 772,
+            "status": "asserted",
+            "text": "中国人民银行行长潘功胜与法国央行行长穆兰举行会谈"
+          },
+          {
+            "end": 821,
+            "start": 797,
+            "status": "asserted",
+            "text": "中国人民银行行长潘功胜与瑞典央行行长特登举行会谈"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "中国人民银行",
+          "央行"
+        ],
+        "evidence_url": "https://www.pbc.gov.cn/goutongjiaoliu/113456/113469/2026101618323611588/index.html",
+        "fact_status": "asserted",
+        "facts": [
+          {
+            "end": 75,
+            "start": 70,
+            "text": "2026年"
+          },
+          {
+            "end": 682,
+            "start": 677,
+            "text": "2026年"
+          }
+        ],
+        "matched_keywords": [
+          "增长",
+          "投资",
+          "消费",
+          "经济"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "neutral",
+          "policy_stance": "neutral",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity"
+        ],
+        "verification": "primary_source"
+      },
+      "assessment_id": "26888ef8ed1e9819d0e1bb70d6a045f7fbd1f53a",
+      "title": "中国人民银行行长潘功胜会见欧盟委员会经济和生产力委员东布罗夫斯基斯、欧洲中央银行行长拉加德、欧元集团主席皮埃拉卡基斯及欧洲有关国家央行行长",
+      "url": "https://www.pbc.gov.cn/goutongjiaoliu/113456/113469/2026101618323611588/index.html",
+      "source_name": "pbc_news",
+      "published_at": "2026-10-16T00:00:00+08:00",
+      "available_at": "2026-10-17T10:08:36+00:00",
+      "document_metadata": {
+        "list_url": "https://www.pbc.gov.cn/goutongjiaoliu/113456/113469/index.html",
+        "publication_precision": "day",
+        "publisher": "pbc.gov.cn"
+      },
+      "matched_task_ids": [
+        "rates-liquidity"
+      ]
+    },
+    {
+      "document_id": "64649fc45196ed41a568defa616c53ad880794ce",
+      "event_cluster_id": "0ed1ce229079115916f37e77",
+      "event_type": "market_news",
+      "severity": "low",
+      "policy_stance": "neutral",
+      "bond_impact": "neutral",
+      "confidence": 0.47000000000000003,
+      "evidence": [
+        "2026年10月16日，中国人民银行行长潘功胜在泰国曼谷出席国际货币基金组织（以下简称基金组织）/世界银行年会期间会见了基金组织总裁格奥尔基耶娃，就中国和全球经济形势、中国和基金组织合作等问题交换了意见"
+      ],
+      "affected_assets": [
+        "CGB"
+      ],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 1.0,
+        "inflation": 0.0,
+        "liquidity": 0.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:36+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 29,
+            "start": 0,
+            "status": "asserted",
+            "text": "中国人民银行行长潘功胜会见国际货币基金组织总裁格奥尔基耶娃"
+          },
+          {
+            "end": 131,
+            "start": 30,
+            "status": "asserted",
+            "text": "2026年10月16日，中国人民银行行长潘功胜在泰国曼谷出席国际货币基金组织（以下简称基金组织）/世界银行年会期间会见了基金组织总裁格奥尔基耶娃，就中国和全球经济形势、中国和基金组织合作等问题交换了意见"
+          },
+          {
+            "end": 148,
+            "start": 132,
+            "status": "asserted",
+            "text": "中国人民银行副行长宣昌能参加会见"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "中国人民银行"
+        ],
+        "evidence_url": "https://www.pbc.gov.cn/goutongjiaoliu/113456/113469/2026101622061793966/index.html",
+        "fact_status": "asserted",
+        "facts": [
+          {
+            "end": 35,
+            "start": 30,
+            "text": "2026年"
+          }
+        ],
+        "matched_keywords": [
+          "经济"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "neutral",
+          "policy_stance": "neutral",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity"
+        ],
+        "verification": "primary_source"
+      },
+      "assessment_id": "714858e9a27c8a30c431f888d41300b137d0724c",
+      "title": "中国人民银行行长潘功胜会见国际货币基金组织总裁格奥尔基耶娃",
+      "url": "https://www.pbc.gov.cn/goutongjiaoliu/113456/113469/2026101622061793966/index.html",
+      "source_name": "pbc_news",
+      "published_at": "2026-10-16T00:00:00+08:00",
+      "available_at": "2026-10-17T10:08:36+00:00",
+      "document_metadata": {
+        "list_url": "https://www.pbc.gov.cn/goutongjiaoliu/113456/113469/index.html",
+        "publication_precision": "day",
+        "publisher": "pbc.gov.cn"
+      },
+      "matched_task_ids": [
+        "rates-liquidity"
+      ]
+    },
+    {
+      "document_id": "9cec093cb81439508294739e67334527e1c0bffe",
+      "event_cluster_id": "22a2fe261d618232f24680a9",
+      "event_type": "market_news",
+      "severity": "low",
+      "policy_stance": "neutral",
+      "bond_impact": "neutral",
+      "confidence": 0.47000000000000003,
+      "evidence": [
+        "2026年10月14日至16日，中国人民银行行长潘功胜在出席国际货币基金组织/世界银行年会期间，分别会见了泰国央行行长威泰、印尼央行行长德斯特里、马来西亚央行行长拉希德、印度央行行长马尔霍特拉、澳大利亚央行行长布洛克、土耳其央行行长卡拉汉、埃及央行行长阿卜杜拉、尼日利亚央行行长卡多索、格鲁吉亚央行行长特尔纳瓦等相关国家央行行长，就全球经济形势、深化双边务实金融合作等议题交换了意见"
+      ],
+      "affected_assets": [
+        "CGB"
+      ],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 1.0,
+        "inflation": 0.0,
+        "liquidity": 0.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:36+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 21,
+            "start": 0,
+            "status": "asserted",
+            "text": "中国人民银行行长潘功胜会见相关国家央行行长"
+          },
+          {
+            "end": 213,
+            "start": 22,
+            "status": "asserted",
+            "text": "2026年10月14日至16日，中国人民银行行长潘功胜在出席国际货币基金组织/世界银行年会期间，分别会见了泰国央行行长威泰、印尼央行行长德斯特里、马来西亚央行行长拉希德、印度央行行长马尔霍特拉、澳大利亚央行行长布洛克、土耳其央行行长卡拉汉、埃及央行行长阿卜杜拉、尼日利亚央行行长卡多索、格鲁吉亚央行行长特尔纳瓦等相关国家央行行长，就全球经济形势、深化双边务实金融合作等议题交换了意见"
+          },
+          {
+            "end": 230,
+            "start": 214,
+            "status": "asserted",
+            "text": "中国人民银行副行长宣昌能参加会见"
+          },
+          {
+            "end": 256,
+            "start": 232,
+            "status": "asserted",
+            "text": "中国人民银行行长潘功胜与泰国央行行长威泰举行会谈"
+          },
+          {
+            "end": 284,
+            "start": 258,
+            "status": "asserted",
+            "text": "中国人民银行行长潘功胜与印尼央行行长德斯特里举行会谈"
+          },
+          {
+            "end": 312,
+            "start": 285,
+            "status": "asserted",
+            "text": "中国人民银行行长潘功胜与马来西亚央行行长拉希德举行会谈"
+          },
+          {
+            "end": 340,
+            "start": 313,
+            "status": "asserted",
+            "text": "中国人民银行行长潘功胜与印度央行行长马尔霍特拉举行会谈"
+          },
+          {
+            "end": 368,
+            "start": 341,
+            "status": "asserted",
+            "text": "中国人民银行行长潘功胜与澳大利亚央行行长布洛克举行会谈"
+          },
+          {
+            "end": 396,
+            "start": 370,
+            "status": "asserted",
+            "text": "中国人民银行行长潘功胜与土耳其央行行长卡拉汉举行会谈"
+          },
+          {
+            "end": 424,
+            "start": 398,
+            "status": "asserted",
+            "text": "中国人民银行行长潘功胜与埃及央行行长阿卜杜拉举行会谈"
+          },
+          {
+            "end": 452,
+            "start": 425,
+            "status": "asserted",
+            "text": "中国人民银行行长潘功胜与尼日利亚央行行长卡多索举行会谈"
+          },
+          {
+            "end": 481,
+            "start": 453,
+            "status": "asserted",
+            "text": "中国人民银行行长潘功胜与格鲁吉亚央行行长特尔纳瓦举行会谈"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "中国人民银行",
+          "央行"
+        ],
+        "evidence_url": "https://www.pbc.gov.cn/goutongjiaoliu/113456/113469/2026101712191431436/index.html",
+        "fact_status": "asserted",
+        "facts": [
+          {
+            "end": 27,
+            "start": 22,
+            "text": "2026年"
+          }
+        ],
+        "matched_keywords": [
+          "经济"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "neutral",
+          "policy_stance": "neutral",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity"
+        ],
+        "verification": "primary_source"
+      },
+      "assessment_id": "633b74afbb46a9840d41a57d868578d045d02733",
+      "title": "中国人民银行行长潘功胜会见相关国家央行行长",
+      "url": "https://www.pbc.gov.cn/goutongjiaoliu/113456/113469/2026101712191431436/index.html",
+      "source_name": "pbc_news",
+      "published_at": "2026-10-17T00:00:00+08:00",
+      "available_at": "2026-10-17T10:08:36+00:00",
+      "document_metadata": {
+        "list_url": "https://www.pbc.gov.cn/goutongjiaoliu/113456/113469/index.html",
+        "publication_precision": "day",
+        "publisher": "pbc.gov.cn"
+      },
+      "matched_task_ids": [
+        "rates-liquidity"
+      ]
+    },
+    {
+      "document_id": "d2b209268fe6974233741ecb9172d00fb5fd917e",
+      "event_cluster_id": "fbbb2cec4dff3d485b539ced",
+      "event_type": "market_news",
+      "severity": "low",
+      "policy_stance": "unclear",
+      "bond_impact": "unclear",
+      "confidence": 0.4,
+      "evidence": [
+        "2026年10月16日至17日，国际货币基金组织（以下简称基金组织）在泰国曼谷召开第54届国际货币与金融委员会（IMFC）会议，会议讨论了全球经济金融形势、基金组织工作等议题",
+        "会议认为，全球经济在地缘政治等冲击下表现好于预期，但贸易紧张局势加剧不确定性，人工智能技术快速发展加剧分化风险，世界经济依然面临下行风险",
+        "各方应关注宏观经济和金融稳定，通过国际合作应对共同挑战"
+      ],
+      "affected_assets": [
+        "CGB"
+      ],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 0.0,
+        "liquidity": 0.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:36+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 29,
+            "start": 0,
+            "status": "asserted",
+            "text": "中国人民银行行长潘功胜出席第54届国际货币与金融委员会会议"
+          },
+          {
+            "end": 136,
+            "start": 118,
+            "status": "asserted",
+            "text": "中国人民银行行长潘功胜出席会议并发言"
+          },
+          {
+            "end": 153,
+            "start": 137,
+            "status": "asserted",
+            "text": "中国人民银行副行长宣昌能参加会议"
+          },
+          {
+            "end": 369,
+            "start": 326,
+            "status": "conditional",
+            "text": "潘功胜指出，贸易摩擦和保护主义通过影响供应链、推升通胀、扰乱市场预期等因素拖累全球经济"
+          },
+          {
+            "end": 875,
+            "start": 825,
+            "status": "asserted",
+            "text": "附件：中国人民银行行长潘功胜在第54届国际货币与金融委员会（IMFC）部长级会议上的书面发言.pdf"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "中国人民银行"
+        ],
+        "evidence_url": "https://www.pbc.gov.cn/goutongjiaoliu/113456/113469/2026101715340431532/index.html",
+        "fact_status": "conditional",
+        "facts": [
+          {
+            "end": 35,
+            "start": 30,
+            "text": "2026年"
+          }
+        ],
+        "matched_keywords": [
+          "经济",
+          "通胀"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "unclear",
+          "policy_stance": "unclear",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity"
+        ],
+        "verification": "primary_source"
+      },
+      "assessment_id": "ccfe935ce0bb60cd16562d1611ea0285ba1cec69",
+      "title": "中国人民银行行长潘功胜出席第54届国际货币与金融委员会会议",
+      "url": "https://www.pbc.gov.cn/goutongjiaoliu/113456/113469/2026101715340431532/index.html",
+      "source_name": "pbc_news",
+      "published_at": "2026-10-17T00:00:00+08:00",
+      "available_at": "2026-10-17T10:08:36+00:00",
+      "document_metadata": {
+        "list_url": "https://www.pbc.gov.cn/goutongjiaoliu/113456/113469/index.html",
+        "publication_precision": "day",
+        "publisher": "pbc.gov.cn"
+      },
+      "matched_task_ids": [
+        "rates-liquidity"
+      ]
+    },
+    {
+      "document_id": "56eedd666a1c26f1485a93dee57fd8fab8ae6935",
+      "event_cluster_id": "c5f1708226baae8ca59f9efc",
+      "event_type": "market_news",
+      "severity": "low",
+      "policy_stance": "neutral",
+      "bond_impact": "neutral",
+      "confidence": 0.47000000000000003,
+      "evidence": [
+        "孙正义将安保服务视为其投资组合企业研发的机器人技术的优质试验场，部署成规模的机器人编队替代人类安保人员，在商业层面已具备可行性"
+      ],
+      "affected_assets": [],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 1.0,
+        "inflation": 0.0,
+        "liquidity": 0.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:25+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 183,
+            "start": 125,
+            "status": "asserted",
+            "text": "本次潜在交易中，AlliedUniversal的股权估值最高可达180亿美元，该公司另有约120亿美元的公开交易债务"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [],
+        "evidence_url": "https://finance.eastmoney.com/a/202610173898793976.html",
+        "fact_status": "asserted",
+        "facts": [
+          {
+            "end": 161,
+            "start": 157,
+            "text": "180亿"
+          },
+          {
+            "end": 174,
+            "start": 170,
+            "text": "120亿"
+          }
+        ],
+        "matched_keywords": [
+          "投资"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "neutral",
+          "policy_stance": "neutral",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "credit-risk"
+        ],
+        "verification": "unverified_report"
+      },
+      "assessment_id": "b1e8bd8ec15870c5b243bffd5ddf45b0910dc4df",
+      "title": "软银据称正在考虑收购美国最大的安全公司ALLIED",
+      "url": "https://finance.eastmoney.com/a/202610173898793976.html",
+      "source_name": "eastmoney_tl",
+      "published_at": "2026-10-17T02:52:57+08:00",
+      "available_at": "2026-10-17T10:08:25+00:00",
+      "document_metadata": {
+        "provider": "eastmoney_tl",
+        "source": ""
+      },
+      "matched_task_ids": [
+        "credit-risk"
+      ]
+    },
+    {
+      "document_id": "84b30af9f4a020ad126ed5fc0594d3821a217b14",
+      "event_cluster_id": "a8c6960ba0559d938f8c8ddb",
+      "event_type": "market_news",
+      "severity": "low",
+      "policy_stance": "unclear",
+      "bond_impact": "unclear",
+      "confidence": 0.4,
+      "evidence": [],
+      "affected_assets": [],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 0.0,
+        "liquidity": 0.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:25+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [],
+        "evidence_url": "https://finance.eastmoney.com/a/202610173898795051.html",
+        "fact_status": "unknown",
+        "facts": [
+          {
+            "end": 46,
+            "start": 41,
+            "text": "0.21%"
+          }
+        ],
+        "matched_keywords": [],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "unclear",
+          "policy_stance": "unclear",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [],
+        "verification": "unverified_report"
+      },
+      "assessment_id": "650ffdad1ad2bf8c654c0abac54e73e6f202d7e7",
+      "title": "美元指数16日下跌",
+      "url": "https://finance.eastmoney.com/a/202610173898795051.html",
+      "source_name": "eastmoney_tl",
+      "published_at": "2026-10-17T03:14:58+08:00",
+      "available_at": "2026-10-17T10:08:25+00:00",
+      "document_metadata": {
+        "provider": "eastmoney_tl",
+        "source": ""
+      },
+      "matched_task_ids": []
+    },
+    {
+      "document_id": "91cd374d69f14315965ca5fce9208b8a1043ca78",
+      "event_cluster_id": "c9ddcd5c4f6c44498dd57114",
+      "event_type": "market_news",
+      "severity": "low",
+      "policy_stance": "neutral",
+      "bond_impact": "neutral",
+      "confidence": 0.45,
+      "evidence": [],
+      "affected_assets": [
+        "TL"
+      ],
+      "tenors": [
+        "5Y",
+        "2Y"
+      ],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 0.0,
+        "liquidity": 0.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:25+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 69,
+            "start": 0,
+            "status": "asserted",
+            "text": "据美国商品期货交易委员会（CFTC） 截至10月13日当周 CBOT美国2年期国债期货投机者净空头头寸增加58,675手至911,579手"
+          },
+          {
+            "end": 139,
+            "start": 70,
+            "status": "asserted",
+            "text": "据美国商品期货交易委员会（CFTC），截至10月13日当周，CBOT美国2年期国债期货投机者净空头头寸增加58,675手至911,579手"
+          },
+          {
+            "end": 181,
+            "start": 140,
+            "status": "asserted",
+            "text": "CBOT美国5年期国债期货投机者净空头头寸减少83,327手至1,080,204手"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [],
+        "evidence_url": "https://finance.eastmoney.com/a/202610173898796051.html",
+        "fact_status": "asserted",
+        "facts": [
+          {
+            "end": 39,
+            "start": 36,
+            "text": "2年期"
+          },
+          {
+            "end": 109,
+            "start": 106,
+            "text": "2年期"
+          },
+          {
+            "end": 149,
+            "start": 146,
+            "text": "5年期"
+          }
+        ],
+        "matched_keywords": [],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "neutral",
+          "policy_stance": "neutral",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity"
+        ],
+        "verification": "unverified_report"
+      },
+      "assessment_id": "f106657377e2a1c8701440f6aa297b932d0e4d7f",
+      "title": "据美国商品期货交易委员会（CFTC） 截至10月13日当周 CBOT美国2年期国债期货投机者净空头头寸增加58,675手至911,579手",
+      "url": "https://finance.eastmoney.com/a/202610173898796051.html",
+      "source_name": "eastmoney_tl",
+      "published_at": "2026-10-17T03:33:56+08:00",
+      "available_at": "2026-10-17T10:08:25+00:00",
+      "document_metadata": {
+        "provider": "eastmoney_tl",
+        "source": ""
+      },
+      "matched_task_ids": [
+        "rates-liquidity"
+      ]
+    },
+    {
+      "document_id": "988a746038d32862846b0c05e9feac6538d0adce",
+      "event_cluster_id": "79bce3a14cd7169eb0745b11",
+      "event_type": "market_news",
+      "severity": "low",
+      "policy_stance": "neutral",
+      "bond_impact": "neutral",
+      "confidence": 0.47000000000000003,
+      "evidence": [
+        "标普确认荷兰 'AAA/A-1+' 评级",
+        "标普确认荷兰'AAA/A-1+'评级，展望稳定"
+      ],
+      "affected_assets": [
+        "CREDIT_BOND"
+      ],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 0.0,
+        "liquidity": 0.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:25+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 20,
+            "start": 0,
+            "status": "asserted",
+            "text": "标普确认荷兰 'AAA/A-1+' 评级"
+          },
+          {
+            "end": 44,
+            "start": 21,
+            "status": "asserted",
+            "text": "标普确认荷兰'AAA/A-1+'评级，展望稳定"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [],
+        "evidence_url": "https://finance.eastmoney.com/a/202610173898799480.html",
+        "fact_status": "asserted",
+        "facts": [],
+        "matched_keywords": [
+          "评级"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "neutral",
+          "policy_stance": "neutral",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "credit-risk"
+        ],
+        "verification": "unverified_report"
+      },
+      "assessment_id": "3aee2e9a05b833feefa9ad8cdb0a5741f1eef445",
+      "title": "标普确认荷兰 'AAA/A-1+' 评级",
+      "url": "https://finance.eastmoney.com/a/202610173898799480.html",
+      "source_name": "eastmoney_tl",
+      "published_at": "2026-10-17T04:05:48+08:00",
+      "available_at": "2026-10-17T10:08:25+00:00",
+      "document_metadata": {
+        "provider": "eastmoney_tl",
+        "source": ""
+      },
+      "matched_task_ids": [
+        "credit-risk"
+      ]
+    },
+    {
+      "document_id": "ffdfafb5d280f3e50931d6e5c50a8614fcc1714f",
+      "event_cluster_id": "493eec1debf08fd48af469be",
+      "event_type": "market_news",
+      "severity": "low",
+      "policy_stance": "neutral",
+      "bond_impact": "neutral",
+      "confidence": 0.47000000000000003,
+      "evidence": [
+        "穆迪将埃及评级上调至B3 维持积极展望",
+        "穆迪将埃及评级上调至B3，维持积极展望"
+      ],
+      "affected_assets": [
+        "CREDIT_BOND"
+      ],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 0.0,
+        "liquidity": 0.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:25+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 19,
+            "start": 0,
+            "status": "asserted",
+            "text": "穆迪将埃及评级上调至B3 维持积极展望"
+          },
+          {
+            "end": 39,
+            "start": 20,
+            "status": "asserted",
+            "text": "穆迪将埃及评级上调至B3，维持积极展望"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [],
+        "evidence_url": "https://finance.eastmoney.com/a/202610173898804988.html",
+        "fact_status": "asserted",
+        "facts": [],
+        "matched_keywords": [
+          "评级"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "neutral",
+          "policy_stance": "neutral",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "credit-risk"
+        ],
+        "verification": "unverified_report"
+      },
+      "assessment_id": "92a12c3bd7dc790416c03e323c69a9229fdabe41",
+      "title": "穆迪将埃及评级上调至B3 维持积极展望",
+      "url": "https://finance.eastmoney.com/a/202610173898804988.html",
+      "source_name": "eastmoney_tl",
+      "published_at": "2026-10-17T04:36:04+08:00",
+      "available_at": "2026-10-17T10:08:25+00:00",
+      "document_metadata": {
+        "provider": "eastmoney_tl",
+        "source": ""
+      },
+      "matched_task_ids": [
+        "credit-risk"
+      ]
+    },
+    {
+      "document_id": "64e857e9d4219de27b4cd018121ad651492e3273",
+      "event_cluster_id": "465c32ddc381944b76ba8dfc",
+      "event_type": "market_news",
+      "severity": "low",
+      "policy_stance": "unclear",
+      "bond_impact": "unclear",
+      "confidence": 0.4,
+      "evidence": [],
+      "affected_assets": [],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 0.0,
+        "liquidity": 0.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:25+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "美联储"
+        ],
+        "evidence_url": "https://finance.eastmoney.com/a/202610173898985764.html",
+        "fact_status": "unknown",
+        "facts": [],
+        "matched_keywords": [],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "unclear",
+          "policy_stance": "unclear",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [],
+        "verification": "unverified_report"
+      },
+      "assessment_id": "a1e635e7f951f5f539d5581c5e735917385c57c5",
+      "title": "美联储进入静默期前夕 沃什在曼谷的发言吐露“鸽心”？",
+      "url": "https://finance.eastmoney.com/a/202610173898985764.html",
+      "source_name": "eastmoney_tl",
+      "published_at": "2026-10-17T08:02:56+08:00",
+      "available_at": "2026-10-17T10:08:25+00:00",
+      "document_metadata": {
+        "provider": "eastmoney_tl",
+        "source": ""
+      },
+      "matched_task_ids": []
+    },
+    {
+      "document_id": "6a2a3742bcdcfac2f83d98b334fe544666024cd0",
+      "event_cluster_id": "7fb50264faad90a9b3c91294",
+      "event_type": "policy_liquidity",
+      "severity": "low",
+      "policy_stance": "unclear",
+      "bond_impact": "unclear",
+      "confidence": 0.4,
+      "evidence": [
+        "【证券日报：外部扰动不改A股中长期运行趋势】北京时间10月14日晚间，美国公布9月CPI（消费者物价指数）数据，市场对美联储10月加息的预期显著升温",
+        "有观点认为，如果通胀持续高于目标水平，美联储可能需要维持高利率更长时间，甚至进一步加息",
+        "拉长周期来看，美联储加息预期升温，对A股市场影响有限"
+      ],
+      "affected_assets": [],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 0.0,
+        "liquidity": 0.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:25+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 95,
+            "start": 21,
+            "status": "conditional",
+            "text": "【证券日报：外部扰动不改A股中长期运行趋势】北京时间10月14日晚间，美国公布9月CPI（消费者物价指数）数据，市场对美联储10月加息的预期显著升温"
+          },
+          {
+            "end": 139,
+            "start": 96,
+            "status": "conditional",
+            "text": "有观点认为，如果通胀持续高于目标水平，美联储可能需要维持高利率更长时间，甚至进一步加息"
+          },
+          {
+            "end": 166,
+            "start": 140,
+            "status": "conditional",
+            "text": "拉长周期来看，美联储加息预期升温，对A股市场影响有限"
+          },
+          {
+            "end": 188,
+            "start": 167,
+            "status": "asserted",
+            "text": "当前，我国货币政策独立性强，流动性保持充裕"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "美联储"
+        ],
+        "evidence_url": "https://finance.eastmoney.com/a/202610173898788670.html",
+        "fact_status": "conditional",
+        "facts": [],
+        "matched_keywords": [
+          "CPI",
+          "加息",
+          "流动性",
+          "消费",
+          "通胀"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "unclear",
+          "policy_stance": "unclear",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity"
+        ],
+        "verification": "unverified_report"
+      },
+      "assessment_id": "25d8cf7b24354a3bd5b7d57ea086a41d5cdacdd0",
+      "title": "证券日报：外部扰动不改A股中长期运行趋势",
+      "url": "https://finance.eastmoney.com/a/202610173898788670.html",
+      "source_name": "eastmoney_tl",
+      "published_at": "2026-10-17T08:07:00+08:00",
+      "available_at": "2026-10-17T10:08:25+00:00",
+      "document_metadata": {
+        "provider": "eastmoney_tl",
+        "source": ""
+      },
+      "matched_task_ids": [
+        "rates-liquidity"
+      ]
+    },
+    {
+      "document_id": "cfd381af71476159ac653f93996b042df7bd4c7d",
+      "event_cluster_id": "effcdae52d5baae14e9da073",
+      "event_type": "market_news",
+      "severity": "low",
+      "policy_stance": "unclear",
+      "bond_impact": "unclear",
+      "confidence": 0.4,
+      "evidence": [
+        "预计这将成为迄今规模最大的芯片融资交易，也将成为检验投资者对人工智能相关债务需求的关键考验"
+      ],
+      "affected_assets": [],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 0.0,
+        "liquidity": 0.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:25+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 37,
+            "start": 0,
+            "status": "asserted",
+            "text": "Anthropic据悉在最新一轮芯片融资交易中 向黑石集团提供两位数收益率"
+          },
+          {
+            "end": 123,
+            "start": 38,
+            "status": "asserted",
+            "text": "【Anthropic据悉在最新一轮芯片融资交易中 向黑石集团提供两位数收益率】据报道，Anthropic正向黑石集团提供超过10%的高收益率，以筹集资金支持其最新芯片交易"
+          },
+          {
+            "end": 209,
+            "start": 124,
+            "status": "conditional",
+            "text": "这笔规模达600亿美元的债务融资计划被称为“北极星项目”（Project North Star），将帮助Anthropic采购约1.5吉瓦由谷歌开发的定制半导体，即TPU"
+          },
+          {
+            "end": 255,
+            "start": 210,
+            "status": "conditional",
+            "text": "预计这将成为迄今规模最大的芯片融资交易，也将成为检验投资者对人工智能相关债务需求的关键考验"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [],
+        "evidence_url": "https://finance.eastmoney.com/a/202610173899002794.html",
+        "fact_status": "conditional",
+        "facts": [
+          {
+            "end": 103,
+            "start": 100,
+            "text": "10%"
+          },
+          {
+            "end": 133,
+            "start": 129,
+            "text": "600亿"
+          }
+        ],
+        "matched_keywords": [
+          "投资"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "unclear",
+          "policy_stance": "unclear",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity",
+          "credit-risk"
+        ],
+        "verification": "unverified_report"
+      },
+      "assessment_id": "f62be3db63f8de694ca23fa29aa8423651ccc16d",
+      "title": "Anthropic据悉在最新一轮芯片融资交易中 向黑石集团提供两位数收益率",
+      "url": "https://finance.eastmoney.com/a/202610173899002794.html",
+      "source_name": "eastmoney_tl",
+      "published_at": "2026-10-17T08:50:38+08:00",
+      "available_at": "2026-10-17T10:08:25+00:00",
+      "document_metadata": {
+        "provider": "eastmoney_tl",
+        "source": ""
+      },
+      "matched_task_ids": [
+        "rates-liquidity",
+        "credit-risk"
+      ]
+    },
+    {
+      "document_id": "6ff445f2d081bf123a9cb123f18a73164ce4c292",
+      "event_cluster_id": "79539ac11f019b091fc8a2af",
+      "event_type": "market_news",
+      "severity": "low",
+      "policy_stance": "unclear",
+      "bond_impact": "unclear",
+      "confidence": 0.4,
+      "evidence": [],
+      "affected_assets": [
+        "TL"
+      ],
+      "tenors": [
+        "30Y"
+      ],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 0.0,
+        "liquidity": 0.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:25+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [],
+        "evidence_url": "https://finance.eastmoney.com/a/202610173899012294.html",
+        "fact_status": "unknown",
+        "facts": [
+          {
+            "end": 19,
+            "start": 14,
+            "text": "2030年"
+          },
+          {
+            "end": 41,
+            "start": 38,
+            "text": "60%"
+          },
+          {
+            "end": 62,
+            "start": 57,
+            "text": "2030年"
+          },
+          {
+            "end": 84,
+            "start": 81,
+            "text": "60%"
+          }
+        ],
+        "matched_keywords": [],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "unclear",
+          "policy_stance": "unclear",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [],
+        "verification": "unverified_report"
+      },
+      "assessment_id": "e2b8b7fdc0b12704dc30e66569a1b86d72813309",
+      "title": "北京“十五五”交通规划发布：2030年轨道超1050公里、45分钟通勤比例达60%",
+      "url": "https://finance.eastmoney.com/a/202610173899012294.html",
+      "source_name": "eastmoney_tl",
+      "published_at": "2026-10-17T10:12:48+08:00",
+      "available_at": "2026-10-17T10:08:25+00:00",
+      "document_metadata": {
+        "provider": "eastmoney_tl",
+        "source": ""
+      },
+      "matched_task_ids": []
+    },
+    {
+      "document_id": "3f772268441866d64a624b2d148de42c6e93a161",
+      "event_cluster_id": "f6509d58789a49a8fc79a8ae",
+      "event_type": "market_news",
+      "severity": "low",
+      "policy_stance": "neutral",
+      "bond_impact": "neutral",
+      "confidence": 0.45,
+      "evidence": [],
+      "affected_assets": [],
+      "tenors": [
+        "5Y",
+        "2Y"
+      ],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 0.0,
+        "liquidity": 0.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:25+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 24,
+            "start": 0,
+            "status": "asserted",
+            "text": "大额存单利率分化：2年期降幅最大 5年期逆势微涨"
+          },
+          {
+            "end": 101,
+            "start": 25,
+            "status": "asserted",
+            "text": "【大额存单利率分化：2年期降幅最大 5年期逆势微涨】10月16日，融360数字科技研究院发布最新报告显示，2026年9月银行大额存单利率呈现显著期限分化"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [],
+        "evidence_url": "https://finance.eastmoney.com/a/202610173899024294.html",
+        "fact_status": "asserted",
+        "facts": [
+          {
+            "end": 12,
+            "start": 9,
+            "text": "2年期"
+          },
+          {
+            "end": 20,
+            "start": 17,
+            "text": "5年期"
+          },
+          {
+            "end": 38,
+            "start": 35,
+            "text": "2年期"
+          },
+          {
+            "end": 46,
+            "start": 43,
+            "text": "5年期"
+          },
+          {
+            "end": 83,
+            "start": 78,
+            "text": "2026年"
+          },
+          {
+            "end": 120,
+            "start": 114,
+            "text": "1.21BP"
+          },
+          {
+            "end": 124,
+            "start": 121,
+            "text": "5年期"
+          },
+          {
+            "end": 132,
+            "start": 126,
+            "text": "1.75BP"
+          },
+          {
+            "end": 142,
+            "start": 139,
+            "text": "1年期"
+          },
+          {
+            "end": 146,
+            "start": 143,
+            "text": "2年期"
+          },
+          {
+            "end": 150,
+            "start": 147,
+            "text": "3年期"
+          },
+          {
+            "end": 162,
+            "start": 156,
+            "text": "1.05BP"
+          },
+          {
+            "end": 169,
+            "start": 163,
+            "text": "3.00BP"
+          },
+          {
+            "end": 176,
+            "start": 170,
+            "text": "3.18BP"
+          },
+          {
+            "end": 183,
+            "start": 177,
+            "text": "1.52BP"
+          },
+          {
+            "end": 189,
+            "start": 186,
+            "text": "2年期"
+          }
+        ],
+        "matched_keywords": [],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "neutral",
+          "policy_stance": "neutral",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity"
+        ],
+        "verification": "unverified_report"
+      },
+      "assessment_id": "e5973ec9bb225e73da953277012a7bc4d91cba67",
+      "title": "大额存单利率分化：2年期降幅最大 5年期逆势微涨",
+      "url": "https://finance.eastmoney.com/a/202610173899024294.html",
+      "source_name": "eastmoney_tl",
+      "published_at": "2026-10-17T11:18:08+08:00",
+      "available_at": "2026-10-17T10:08:25+00:00",
+      "document_metadata": {
+        "provider": "eastmoney_tl",
+        "source": ""
+      },
+      "matched_task_ids": [
+        "rates-liquidity"
+      ]
+    },
+    {
+      "document_id": "8a849b0c4610827098ed671402044fc36bf9afdd",
+      "event_cluster_id": "23418744f60dbf62ca0bd1bf",
+      "event_type": "market_news",
+      "severity": "low",
+      "policy_stance": "neutral",
+      "bond_impact": "neutral",
+      "confidence": 0.45,
+      "evidence": [],
+      "affected_assets": [],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 0.0,
+        "liquidity": 0.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:25+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 109,
+            "start": 77,
+            "status": "asserted",
+            "text": "讨论的风险包括人工智能、通货膨胀、高债务水平和日益恶化的气候变化"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [],
+        "evidence_url": "https://finance.eastmoney.com/a/202610173899037527.html",
+        "fact_status": "asserted",
+        "facts": [],
+        "matched_keywords": [],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "neutral",
+          "policy_stance": "neutral",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "credit-risk"
+        ],
+        "verification": "unverified_report"
+      },
+      "assessment_id": "fcf58a2ea3449223d23172ce3d5bf97ea4cb8f4e",
+      "title": "IMF总裁格奥尔基耶娃：年度会议充满了乐观与担忧",
+      "url": "https://finance.eastmoney.com/a/202610173899037527.html",
+      "source_name": "eastmoney_tl",
+      "published_at": "2026-10-17T13:42:50+08:00",
+      "available_at": "2026-10-17T10:08:25+00:00",
+      "document_metadata": {
+        "provider": "eastmoney_tl",
+        "source": ""
+      },
+      "matched_task_ids": [
+        "credit-risk"
+      ]
+    },
+    {
+      "document_id": "d184ccbba5ab95a55eeec881531dd6be8fd1f522",
+      "event_cluster_id": "5df6f762fb0db83e642d0055",
+      "event_type": "market_news",
+      "severity": "low",
+      "policy_stance": "unclear",
+      "bond_impact": "unclear",
+      "confidence": 0.4,
+      "evidence": [
+        "欧洲央行管委雷恩：警惕能源涨价引发二轮通胀效应",
+        "【欧洲央行管委雷恩：警惕能源涨价引发二轮通胀效应】欧洲央行管委雷恩周六表示，政策制定者将继续警惕能源价格上涨引发第二轮通胀效应的风险，因为这种效应可能在不知不觉中逐渐显现",
+        "雷恩在曼谷的一场活动上表示：“目前没有出现第二轮通胀效应的迹象，但我们将保持警惕，因为这种效应可能在不知不觉中悄然显现"
+      ],
+      "affected_assets": [
+        "CGB"
+      ],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 0.0,
+        "liquidity": 0.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:25+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 23,
+            "start": 0,
+            "status": "asserted",
+            "text": "欧洲央行管委雷恩：警惕能源涨价引发二轮通胀效应"
+          },
+          {
+            "end": 109,
+            "start": 24,
+            "status": "conditional",
+            "text": "【欧洲央行管委雷恩：警惕能源涨价引发二轮通胀效应】欧洲央行管委雷恩周六表示，政策制定者将继续警惕能源价格上涨引发第二轮通胀效应的风险，因为这种效应可能在不知不觉中逐渐显现"
+          },
+          {
+            "end": 169,
+            "start": 110,
+            "status": "denied",
+            "text": "雷恩在曼谷的一场活动上表示：“目前没有出现第二轮通胀效应的迹象，但我们将保持警惕，因为这种效应可能在不知不觉中悄然显现"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "央行"
+        ],
+        "evidence_url": "https://finance.eastmoney.com/a/202610173899038351.html",
+        "fact_status": "mixed",
+        "facts": [],
+        "matched_keywords": [
+          "价格",
+          "通胀"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "unclear",
+          "policy_stance": "unclear",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity"
+        ],
+        "verification": "unverified_report"
+      },
+      "assessment_id": "0498b66889d1b003db2a107c7ad212e0737c2194",
+      "title": "欧洲央行管委雷恩：警惕能源涨价引发二轮通胀效应",
+      "url": "https://finance.eastmoney.com/a/202610173899038351.html",
+      "source_name": "eastmoney_tl",
+      "published_at": "2026-10-17T14:01:23+08:00",
+      "available_at": "2026-10-17T10:08:25+00:00",
+      "document_metadata": {
+        "provider": "eastmoney_tl",
+        "source": ""
+      },
+      "matched_task_ids": [
+        "rates-liquidity"
+      ]
+    },
+    {
+      "document_id": "ffb7787989ab7ee37a05b032ec13f607bc3409a9",
+      "event_cluster_id": "26c2589d6f01d695a7bce6f5",
+      "event_type": "market_news",
+      "severity": "low",
+      "policy_stance": "neutral",
+      "bond_impact": "neutral",
+      "confidence": 0.47000000000000003,
+      "evidence": [
+        "【中国人民银行行长潘功胜会见相关国家央行行长】2026年10月14日至16日，中国人民银行行长潘功胜在出席国际货币基金组织/世界银行年会期间，分别会见了泰国央行行长威泰、印尼央行行长德斯特里、马来西亚央行行长拉希德、印度央行行长马尔霍特拉、澳大利亚央行行长布洛克、土耳其央行行长卡拉汉、埃及央行行长阿卜杜拉、尼日利亚央行行长卡多索、格鲁吉亚央行行长特尔纳瓦等相关国家央行行长，就全球经济形势、深化双边务实金融合作等议题交换了意见"
+      ],
+      "affected_assets": [
+        "CGB"
+      ],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 1.0,
+        "inflation": 0.0,
+        "liquidity": 0.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:25+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 21,
+            "start": 0,
+            "status": "asserted",
+            "text": "中国人民银行行长潘功胜会见相关国家央行行长"
+          },
+          {
+            "end": 236,
+            "start": 22,
+            "status": "asserted",
+            "text": "【中国人民银行行长潘功胜会见相关国家央行行长】2026年10月14日至16日，中国人民银行行长潘功胜在出席国际货币基金组织/世界银行年会期间，分别会见了泰国央行行长威泰、印尼央行行长德斯特里、马来西亚央行行长拉希德、印度央行行长马尔霍特拉、澳大利亚央行行长布洛克、土耳其央行行长卡拉汉、埃及央行行长阿卜杜拉、尼日利亚央行行长卡多索、格鲁吉亚央行行长特尔纳瓦等相关国家央行行长，就全球经济形势、深化双边务实金融合作等议题交换了意见"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "中国人民银行",
+          "央行"
+        ],
+        "evidence_url": "https://finance.eastmoney.com/a/202610173899038468.html",
+        "fact_status": "asserted",
+        "facts": [
+          {
+            "end": 50,
+            "start": 45,
+            "text": "2026年"
+          }
+        ],
+        "matched_keywords": [
+          "经济"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "neutral",
+          "policy_stance": "neutral",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity"
+        ],
+        "verification": "unverified_report"
+      },
+      "assessment_id": "0b483f46f36e8e0b2dbc0c8d238026796eaa45b0",
+      "title": "中国人民银行行长潘功胜会见相关国家央行行长",
+      "url": "https://finance.eastmoney.com/a/202610173899038468.html",
+      "source_name": "eastmoney_tl",
+      "published_at": "2026-10-17T14:04:09+08:00",
+      "available_at": "2026-10-17T10:08:25+00:00",
+      "document_metadata": {
+        "provider": "eastmoney_tl",
+        "source": ""
+      },
+      "matched_task_ids": [
+        "rates-liquidity"
+      ]
+    },
+    {
+      "document_id": "af846dba88587589b913d8bb9e6824b687a133f5",
+      "event_cluster_id": "87091bd687a520ff3c58275f",
+      "event_type": "market_news",
+      "severity": "low",
+      "policy_stance": "neutral",
+      "bond_impact": "neutral",
+      "confidence": 0.49,
+      "evidence": [
+        "欧洲央行行长拉加德：应采取适度政策举措遏制通胀",
+        "【欧洲央行行长拉加德：应采取适度政策举措遏制通胀】欧洲央行行长拉加德表示，战争带来通胀上行风险",
+        "财政可持续性仍是整体经济稳定的“重要支柱”，各国政府应当确保针对能源冲击出台的财政举措具备临时性、定向性与适配性"
+      ],
+      "affected_assets": [
+        "CGB"
+      ],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 1.0,
+        "inflation": 1.0,
+        "liquidity": 0.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:25+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 23,
+            "start": 0,
+            "status": "asserted",
+            "text": "欧洲央行行长拉加德：应采取适度政策举措遏制通胀"
+          },
+          {
+            "end": 71,
+            "start": 24,
+            "status": "asserted",
+            "text": "【欧洲央行行长拉加德：应采取适度政策举措遏制通胀】欧洲央行行长拉加德表示，战争带来通胀上行风险"
+          },
+          {
+            "end": 146,
+            "start": 129,
+            "status": "asserted",
+            "text": "经济前景下行风险存在，通胀风险上行"
+          },
+          {
+            "end": 160,
+            "start": 147,
+            "status": "asserted",
+            "text": "应采取适度政策举措遏制通胀"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "央行"
+        ],
+        "evidence_url": "https://finance.eastmoney.com/a/202610173899039938.html",
+        "fact_status": "asserted",
+        "facts": [],
+        "matched_keywords": [
+          "经济",
+          "通胀"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "neutral",
+          "policy_stance": "neutral",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity"
+        ],
+        "verification": "unverified_report"
+      },
+      "assessment_id": "25c0095bc68207ccfe00c0b5ad3a6e99f93ace6d",
+      "title": "欧洲央行行长拉加德：应采取适度政策举措遏制通胀",
+      "url": "https://finance.eastmoney.com/a/202610173899039938.html",
+      "source_name": "eastmoney_tl",
+      "published_at": "2026-10-17T14:27:28+08:00",
+      "available_at": "2026-10-17T10:08:25+00:00",
+      "document_metadata": {
+        "provider": "eastmoney_tl",
+        "source": ""
+      },
+      "matched_task_ids": [
+        "rates-liquidity"
+      ]
+    },
+    {
+      "document_id": "35ff0ed11c0f3d3a9b7e79063a6fd6f7a4f00939",
+      "event_cluster_id": "8abd33f350cc83b9cca4afff",
+      "event_type": "market_news",
+      "severity": "low",
+      "policy_stance": "neutral",
+      "bond_impact": "neutral",
+      "confidence": 0.49,
+      "evidence": [
+        "该数字甚至超过一些发达国家一年的经济总量",
+        "尽管美国政府全年收入达到创纪录的5.4万亿美元，但支出增长更快，达到7.4万亿美元"
+      ],
+      "affected_assets": [],
+      "tenors": [
+        "5Y"
+      ],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 1.0,
+        "inflation": 0.0,
+        "liquidity": 0.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:25+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 197,
+            "start": 178,
+            "status": "asserted",
+            "text": "其中，债务利息支出高达1.36万亿美元"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [
+          "财政部"
+        ],
+        "evidence_url": "https://finance.eastmoney.com/a/202610173899040221.html",
+        "fact_status": "asserted",
+        "facts": [
+          {
+            "end": 8,
+            "start": 6,
+            "text": "2万"
+          },
+          {
+            "end": 31,
+            "start": 29,
+            "text": "2万"
+          },
+          {
+            "end": 87,
+            "start": 82,
+            "text": "1.99万"
+          },
+          {
+            "end": 103,
+            "start": 98,
+            "text": "2170亿"
+          },
+          {
+            "end": 156,
+            "start": 152,
+            "text": "5.4万"
+          },
+          {
+            "end": 174,
+            "start": 170,
+            "text": "7.4万"
+          },
+          {
+            "end": 194,
+            "start": 189,
+            "text": "1.36万"
+          }
+        ],
+        "matched_keywords": [
+          "增长",
+          "经济"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "neutral",
+          "policy_stance": "neutral",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity",
+          "credit-risk"
+        ],
+        "verification": "unverified_report"
+      },
+      "assessment_id": "634a638f56da5da9d0631f8e7e2f3dd42df916b1",
+      "title": "财政赤字逼近2万亿美元 美国财政压力有多大",
+      "url": "https://finance.eastmoney.com/a/202610173899040221.html",
+      "source_name": "eastmoney_tl",
+      "published_at": "2026-10-17T14:46:42+08:00",
+      "available_at": "2026-10-17T10:08:25+00:00",
+      "document_metadata": {
+        "provider": "eastmoney_tl",
+        "source": ""
+      },
+      "matched_task_ids": [
+        "rates-liquidity",
+        "credit-risk"
+      ]
+    },
+    {
+      "document_id": "a7d20d73149500b8ce51457f2be00771258fa12b",
+      "event_cluster_id": "42be7e88d39e337f90eff301",
+      "event_type": "market_news",
+      "severity": "low",
+      "policy_stance": "neutral",
+      "bond_impact": "neutral",
+      "confidence": 0.49,
+      "evidence": [
+        "IMF官员警告全球经济面临紧迫财政挑战",
+        "【IMF官员警告全球经济面临紧迫财政挑战】国际货币基金组织（IMF）财政事务部主任罗德里戈·巴尔德斯日前在接受新华社记者专访时表示，在高债务水平、更高利率以及不断增长的公共支出需求背景下，几乎所有经济体都面临紧迫的财政挑战",
+        "他表示，债务高企是现实，对全球经济体而言，债务与国内生产总值（GDP）之比正在上升，利率比几年前更高，而且有很多增加的支出需求"
+      ],
+      "affected_assets": [],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 1.0,
+        "inflation": 0.0,
+        "liquidity": 0.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:25+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 131,
+            "start": 20,
+            "status": "asserted",
+            "text": "【IMF官员警告全球经济面临紧迫财政挑战】国际货币基金组织（IMF）财政事务部主任罗德里戈·巴尔德斯日前在接受新华社记者专访时表示，在高债务水平、更高利率以及不断增长的公共支出需求背景下，几乎所有经济体都面临紧迫的财政挑战"
+          },
+          {
+            "end": 195,
+            "start": 132,
+            "status": "asserted",
+            "text": "他表示，债务高企是现实，对全球经济体而言，债务与国内生产总值（GDP）之比正在上升，利率比几年前更高，而且有很多增加的支出需求"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [],
+        "evidence_url": "https://finance.eastmoney.com/a/202610173899041392.html",
+        "fact_status": "asserted",
+        "facts": [],
+        "matched_keywords": [
+          "增长",
+          "经济"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "neutral",
+          "policy_stance": "neutral",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity",
+          "credit-risk"
+        ],
+        "verification": "unverified_report"
+      },
+      "assessment_id": "866915334efaf3991e2b52a81f82625b2b6a2190",
+      "title": "IMF官员警告全球经济面临紧迫财政挑战",
+      "url": "https://finance.eastmoney.com/a/202610173899041392.html",
+      "source_name": "eastmoney_tl",
+      "published_at": "2026-10-17T15:01:15+08:00",
+      "available_at": "2026-10-17T10:08:25+00:00",
+      "document_metadata": {
+        "provider": "eastmoney_tl",
+        "source": ""
+      },
+      "matched_task_ids": [
+        "rates-liquidity",
+        "credit-risk"
+      ]
+    },
+    {
+      "document_id": "790586b46ba2fcdd5cb706ff983876a14cf575af",
+      "event_cluster_id": "44ba3e41f933cd8a2e8208f0",
+      "event_type": "market_news",
+      "severity": "low",
+      "policy_stance": "unclear",
+      "bond_impact": "unclear",
+      "confidence": 0.4,
+      "evidence": [
+        "【国际货币基金组织总裁：秋季年会达成三项核心共识】当地时间10月17日，国际货币基金组织（IMF）总裁克里斯塔利娜·格奥尔基耶娃在泰国曼谷举行的2026年秋季年会总结发言中表示，本次会议围绕全球经济韧性、人工智能发展及其风险、全球经济分化等议题展开深入讨论，并达成三项核心共识"
+      ],
+      "affected_assets": [],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 0.0,
+        "liquidity": 0.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:25+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [],
+        "evidence_url": "https://finance.eastmoney.com/a/202610173899043644.html",
+        "fact_status": "unknown",
+        "facts": [
+          {
+            "end": 101,
+            "start": 96,
+            "text": "2026年"
+          }
+        ],
+        "matched_keywords": [
+          "经济"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "unclear",
+          "policy_stance": "unclear",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [],
+        "verification": "unverified_report"
+      },
+      "assessment_id": "e475f56a3b619fec84c63c48426b6a45754b95c7",
+      "title": "国际货币基金组织总裁：秋季年会达成三项核心共识",
+      "url": "https://finance.eastmoney.com/a/202610173899043644.html",
+      "source_name": "eastmoney_tl",
+      "published_at": "2026-10-17T15:36:13+08:00",
+      "available_at": "2026-10-17T10:08:25+00:00",
+      "document_metadata": {
+        "provider": "eastmoney_tl",
+        "source": ""
+      },
+      "matched_task_ids": []
+    },
+    {
+      "document_id": "c69500ef0cc8beb12c41c5a2645e1de0cf149bb0",
+      "event_cluster_id": "ce7de72b44221fa2fa426e8e",
+      "event_type": "market_news",
+      "severity": "low",
+      "policy_stance": "unclear",
+      "bond_impact": "unclear",
+      "confidence": 0.4,
+      "evidence": [
+        "【慧谷新材：2026年全年毛利率预期将保持相对稳定】慧谷新材(301683)近日在机构调研、路演活动中表示，2026年全年毛利率公司预期将保持相对稳定，但不排除单季度受原材料价格大幅异动、产品结构变化、下游客户订单结构变动等因素带来的阶段性波动",
+        "公司和主要客户合同设有价格调整条款，当原材料价格大幅上升时，公司会和客户协商调价"
+      ],
+      "affected_assets": [],
+      "tenors": [],
+      "novelty": 1.0,
+      "channels": {
+        "growth": 0.0,
+        "inflation": 0.0,
+        "liquidity": 0.0,
+        "supply": 0.0
+      },
+      "prompt_injection_flag": false,
+      "model_version": "deterministic-tl-rules-v2",
+      "schema_version": "event-assessment-v1",
+      "assessed_at": "2026-10-17T10:08:25+00:00",
+      "expires_at": null,
+      "missing_reason": "",
+      "raw_response": {
+        "claims": [
+          {
+            "end": 24,
+            "start": 0,
+            "status": "conditional",
+            "text": "慧谷新材：2026年全年毛利率预期将保持相对稳定"
+          },
+          {
+            "end": 147,
+            "start": 25,
+            "status": "conditional",
+            "text": "【慧谷新材：2026年全年毛利率预期将保持相对稳定】慧谷新材(301683)近日在机构调研、路演活动中表示，2026年全年毛利率公司预期将保持相对稳定，但不排除单季度受原材料价格大幅异动、产品结构变化、下游客户订单结构变动等因素带来的阶段性波动"
+          }
+        ],
+        "confidence_kind": "heuristic_not_probability",
+        "entities": [],
+        "evidence_url": "https://finance.eastmoney.com/a/202610173899051442.html",
+        "fact_status": "conditional",
+        "facts": [
+          {
+            "end": 10,
+            "start": 5,
+            "text": "2026年"
+          },
+          {
+            "end": 36,
+            "start": 31,
+            "text": "2026年"
+          },
+          {
+            "end": 84,
+            "start": 79,
+            "text": "2026年"
+          }
+        ],
+        "matched_keywords": [
+          "价格"
+        ],
+        "prompt_injection_patterns": [],
+        "scores": {
+          "bond_impact": "unclear",
+          "policy_stance": "unclear",
+          "severity": "low"
+        },
+        "source": "deterministic_tl_rules",
+        "task_ids": [
+          "rates-liquidity"
+        ],
+        "verification": "unverified_report"
+      },
+      "assessment_id": "a77aab57732df2ac90703efdf05a85f3eaa274ef",
+      "title": "慧谷新材：2026年全年毛利率预期将保持相对稳定",
+      "url": "https://finance.eastmoney.com/a/202610173899051442.html",
+      "source_name": "eastmoney_tl",
+      "published_at": "2026-10-17T17:56:35+08:00",
+      "available_at": "2026-10-17T10:08:25+00:00",
+      "document_metadata": {
+        "provider": "eastmoney_tl",
+        "source": ""
+      },
+      "matched_task_ids": [
+        "rates-liquidity"
+      ]
+    }
+  ],
+  "run_id": "sentiment_monitor_20261017T1008240000_3d80190871",
+  "started_at": "2026-10-17T10:08:24+00:00",
+  "finished_at": "2026-10-17T10:08:59+00:00",
+  "status": "partial_failure",
+  "counts": {
+    "sources_checked": 4,
+    "sources_failed": 3,
+    "sources_content_stale": 0,
+    "documents_seen": 48,
+    "documents_inserted": 48,
+    "documents_dropped": 0,
+    "assessments_created": 48,
+    "alerts_opened": 11
+  },
+  "source_health": [
+    {
+      "source_name": "eastmoney_tl",
+      "last_success_at": "2026-10-17T10:08:25+00:00",
+      "last_checked_at": "2026-10-17T10:08:25+00:00",
+      "last_error": "",
+      "source_stale": false,
+      "content_stale": false,
+      "last_document_at": "2026-10-17T10:08:25+00:00",
+      "content_baseline_at": "2026-10-17T10:08:25+00:00",
+      "document_count": 18
+    },
+    {
+      "source_name": "mof_bonds",
+      "last_success_at": "2026-10-17T10:08:59+00:00",
+      "last_checked_at": "2026-10-17T10:08:59+00:00",
+      "last_error": "bounded backlog: remaining visible articles will be fetched on next poll",
+      "source_stale": true,
+      "content_stale": false,
+      "last_document_at": "2026-10-17T10:08:59+00:00",
+      "content_baseline_at": "2026-10-17T10:08:59+00:00",
+      "document_count": 10
+    },
+    {
+      "source_name": "pbc_news",
+      "last_success_at": "2026-10-17T10:08:36+00:00",
+      "last_checked_at": "2026-10-17T10:08:36+00:00",
+      "last_error": "bounded backlog: remaining visible articles will be fetched on next poll",
+      "source_stale": true,
+      "content_stale": false,
+      "last_document_at": "2026-10-17T10:08:36+00:00",
+      "content_baseline_at": "2026-10-17T10:08:36+00:00",
+      "document_count": 10
+    },
+    {
+      "source_name": "pbc_omo",
+      "last_success_at": "2026-10-17T10:08:47+00:00",
+      "last_checked_at": "2026-10-17T10:08:47+00:00",
+      "last_error": "bounded backlog: remaining visible articles will be fetched on next poll",
+      "source_stale": true,
+      "content_stale": false,
+      "last_document_at": "2026-10-17T10:08:47+00:00",
+      "content_baseline_at": "2026-10-17T10:08:47+00:00",
+      "document_count": 10
+    }
+  ],
+  "open_alerts": [
+    {
+      "alert_id": "26b581828e3900e6a66eb6b60c0f7883",
+      "event_cluster_id": "e64768084431927aaa6f403a",
+      "severity": "medium",
+      "status": "open",
+      "reason": "bond_supply:neutral/neutral",
+      "updated_at": "2026-10-17T10:08:36+00:00"
+    },
+    {
+      "alert_id": "07039fe505e8300d375bff5b09f9e000",
+      "event_cluster_id": "0ac280b8a9e50e765636ac27",
+      "severity": "medium",
+      "status": "open",
+      "reason": "bond_supply:unclear/unclear",
+      "updated_at": "2026-10-17T10:08:59+00:00"
+    },
+    {
+      "alert_id": "1b7e8356322267856a44edb61475a375",
+      "event_cluster_id": "084ee1600bb75f8a0b9ae557",
+      "severity": "medium",
+      "status": "open",
+      "reason": "bond_supply:unclear/unclear",
+      "updated_at": "2026-10-17T10:08:59+00:00"
+    },
+    {
+      "alert_id": "2213ed4edca27181ec6341087c24abf0",
+      "event_cluster_id": "dc9e81cf89ff11f452336f65",
+      "severity": "medium",
+      "status": "open",
+      "reason": "bond_supply:neutral/neutral",
+      "updated_at": "2026-10-17T10:08:59+00:00"
+    },
+    {
+      "alert_id": "3fe01d84be86f99687b23deaafa0f654",
+      "event_cluster_id": "a1b767276cc7eaeca47d13fa",
+      "severity": "medium",
+      "status": "open",
+      "reason": "bond_supply:neutral/neutral",
+      "updated_at": "2026-10-17T10:08:59+00:00"
+    },
+    {
+      "alert_id": "492e84e891765dd3b24614dcc2d0f42f",
+      "event_cluster_id": "6f9b6f25b68f4d7fc53599c6",
+      "severity": "medium",
+      "status": "open",
+      "reason": "bond_supply:unclear/unclear",
+      "updated_at": "2026-10-17T10:08:59+00:00"
+    },
+    {
+      "alert_id": "55021a0d9d26c52b29ccec3af1eabc74",
+      "event_cluster_id": "068cdb0c8b1d05e8924f7d96",
+      "severity": "medium",
+      "status": "open",
+      "reason": "bond_supply:unclear/unclear",
+      "updated_at": "2026-10-17T10:08:59+00:00"
+    },
+    {
+      "alert_id": "7a1b50f63aecfd28b9c4323176a2fff9",
+      "event_cluster_id": "d28f8a5ece153289dc6e19ee",
+      "severity": "medium",
+      "status": "open",
+      "reason": "bond_supply:neutral/neutral",
+      "updated_at": "2026-10-17T10:08:59+00:00"
+    },
+    {
+      "alert_id": "a10bcde4ab945886c52ab12108e75f9b",
+      "event_cluster_id": "332d567ebd1c15098f18bda3",
+      "severity": "medium",
+      "status": "open",
+      "reason": "bond_supply:neutral/neutral",
+      "updated_at": "2026-10-17T10:08:59+00:00"
+    },
+    {
+      "alert_id": "b1725ba7c5ffe6f7892f6ce835b4494b",
+      "event_cluster_id": "3fb195c15b92fda1be61e8ae",
+      "severity": "medium",
+      "status": "open",
+      "reason": "bond_supply:unclear/unclear",
+      "updated_at": "2026-10-17T10:08:59+00:00"
+    },
+    {
+      "alert_id": "b9953ddbd2422c4c37886f1b11f60346",
+      "event_cluster_id": "85ba1f30e8ffcce6331a9019",
+      "severity": "medium",
+      "status": "open",
+      "reason": "bond_supply:neutral/neutral",
+      "updated_at": "2026-10-17T10:08:59+00:00"
+    }
+  ]
+}

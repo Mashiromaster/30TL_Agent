@@ -1,0 +1,412 @@
+{
+  "schema_version": "f_agent.hybrid.v1",
+  "run_id": "hybrid_20261017T141926_135558Z_9d4225509283",
+  "generated_at": "2026-10-17T14:19:26.135558+00:00",
+  "asset": "TL",
+  "question": "当前国债期货信号有哪些支持和反对证据？",
+  "integration": {
+    "production_inputs": true,
+    "injected_components": []
+  },
+  "network_mode": "offline",
+  "config": {
+    "network_mode": "offline",
+    "asset": "TL",
+    "max_age_hours": 24,
+    "max_model_calls": 4,
+    "max_evidence": 20
+  },
+  "snapshot": {
+    "snapshot_id": "snapshot:338b0a7897c7d58bbb3082127f8f6d7d2dea76553afd220a255a2e0caa492db4",
+    "as_of": "2026-06-02T07:15:00+00:00",
+    "requested_as_of": "2026-10-17T14:19:26.135558+00:00",
+    "rows": 159465,
+    "source_rows": 159465,
+    "excluded_future_rows": 0,
+    "age_seconds": 11862266.135558,
+    "stale": true,
+    "max_age_hours": 24,
+    "first_bar": "2023-04-24T07:06:00+00:00",
+    "contract": "TL2609",
+    "feature_count": 215,
+    "historical_research": true,
+    "source": "local_artifact",
+    "factor_path": "/Users/mashiro/Project/F_Agent/outputs/df_factors.pkl",
+    "factor_sha256": "82194ecb0fdc5e8f2f3b2ce0a7f9b9275b23742c57ebfd0950ab3abcfb2fccff",
+    "factor_provenance": {
+      "verified": false,
+      "reason": "legacy factors have no verified candidate construction contract",
+      "manifest_path": "",
+      "provenance": {}
+    }
+  },
+  "baseline": null,
+  "evidence": [],
+  "evidence_exclusions": {},
+  "opinions": {
+    "quant": {
+      "status": "skipped",
+      "reason": "invalid_snapshot",
+      "model": "",
+      "source": "local",
+      "output": {},
+      "usage": {}
+    },
+    "jev": {
+      "status": "skipped",
+      "reason": "canonical_model_unavailable",
+      "model": "",
+      "source": "local",
+      "output": {},
+      "usage": {}
+    },
+    "llm": {
+      "status": "skipped",
+      "reason": "canonical_model_unavailable",
+      "model": "",
+      "source": "local",
+      "output": {},
+      "usage": {}
+    },
+    "advisor": {
+      "status": "skipped",
+      "reason": "canonical_model_unavailable",
+      "model": "",
+      "source": "local",
+      "output": {},
+      "usage": {}
+    }
+  },
+  "route": {
+    "route": "quant_only",
+    "fallback": true,
+    "reason": "canonical_model_unavailable"
+  },
+  "persistence": {
+    "status": "saved",
+    "path": "/Users/mashiro/Project/F_Agent/outputs/hybrid_runs/hybrid_20261017T141926_135558Z_9d4225509283.json",
+    "reason": ""
+  },
+  "decision": {
+    "status": "blocked",
+    "recommendation": "abstain",
+    "proposed_direction": 0,
+    "proposed_weight": 0.0,
+    "execution_authorized": false,
+    "baseline_unchanged": true,
+    "blocked_reasons": [
+      "canonical_model_unavailable",
+      "stale_market_snapshot",
+      "unverified_factor_provenance"
+    ],
+    "conflicts": [],
+    "reasons": [
+      "jev: skipped (canonical_model_unavailable)",
+      "llm: skipped (canonical_model_unavailable)",
+      "advisor: skipped (canonical_model_unavailable)",
+      "no_contemporaneous_evidence"
+    ],
+    "arbitration_rule": "most_conservative_valid_opinion_v1; reduce=0.5; no reversal or increase",
+    "disclaimer": "研究建议非订单；各模型置信度不等于收益概率，未进行概率加权。"
+  },
+  "stages": [
+    {
+      "stage_id": "snapshot",
+      "label": "时点快照 / 数据新鲜度",
+      "kind": "deterministic",
+      "dependencies": [],
+      "started_at": "2026-10-17T14:19:26.135907+00:00",
+      "finished_at": "2026-10-17T14:19:26.983217+00:00",
+      "elapsed_ms": 847.31,
+      "input_refs": [],
+      "status": "blocked",
+      "reason": "unverified_factor_provenance",
+      "model": "",
+      "source": "local",
+      "output": {
+        "snapshot_id": "snapshot:338b0a7897c7d58bbb3082127f8f6d7d2dea76553afd220a255a2e0caa492db4",
+        "as_of": "2026-06-02T07:15:00+00:00",
+        "requested_as_of": "2026-10-17T14:19:26.135558+00:00",
+        "rows": 159465,
+        "source_rows": 159465,
+        "excluded_future_rows": 0,
+        "age_seconds": 11862266.135558,
+        "stale": true,
+        "max_age_hours": 24,
+        "first_bar": "2023-04-24T07:06:00+00:00",
+        "contract": "TL2609",
+        "feature_count": 215,
+        "historical_research": true,
+        "source": "local_artifact",
+        "factor_path": "/Users/mashiro/Project/F_Agent/outputs/df_factors.pkl",
+        "factor_sha256": "82194ecb0fdc5e8f2f3b2ce0a7f9b9275b23742c57ebfd0950ab3abcfb2fccff",
+        "factor_provenance": {
+          "verified": false,
+          "reason": "legacy factors have no verified candidate construction contract",
+          "manifest_path": "",
+          "provenance": {}
+        }
+      },
+      "usage": {}
+    },
+    {
+      "stage_id": "advisor_plan",
+      "label": "Advisor · 计划约束检查（规则）",
+      "kind": "deterministic",
+      "dependencies": [
+        "snapshot"
+      ],
+      "started_at": "2026-10-17T14:19:26.983230+00:00",
+      "finished_at": "2026-10-17T14:19:26.983250+00:00",
+      "elapsed_ms": 0.019,
+      "input_refs": [
+        "snapshot"
+      ],
+      "status": "ok",
+      "reason": "",
+      "model": "",
+      "source": "local",
+      "output": {
+        "network_mode": "offline",
+        "call_limit": 4,
+        "asset": "TL",
+        "constraints": [
+          "no_orders",
+          "canonical_immutable",
+          "as_of_evidence_only",
+          "no_hidden_retries"
+        ],
+        "model_roles": [
+          "quantitative_worker",
+          "evidence_explorer",
+          "jev_router",
+          "llm_researcher",
+          "advisor"
+        ]
+      },
+      "usage": {}
+    },
+    {
+      "stage_id": "quant",
+      "label": "Worker · 量化模型",
+      "kind": "deterministic",
+      "dependencies": [
+        "snapshot"
+      ],
+      "started_at": "2026-10-17T14:19:26.983254+00:00",
+      "finished_at": "2026-10-17T14:19:26.983260+00:00",
+      "elapsed_ms": 0.006,
+      "input_refs": [
+        "snapshot"
+      ],
+      "status": "skipped",
+      "reason": "invalid_snapshot",
+      "model": "",
+      "source": "local",
+      "output": {},
+      "usage": {}
+    },
+    {
+      "stage_id": "evidence",
+      "label": "Explorer · 证据",
+      "kind": "deterministic",
+      "dependencies": [
+        "snapshot"
+      ],
+      "started_at": "2026-10-17T14:19:26.983262+00:00",
+      "finished_at": "2026-10-17T14:19:26.983267+00:00",
+      "elapsed_ms": 0.005,
+      "input_refs": [
+        "snapshot"
+      ],
+      "status": "skipped",
+      "reason": "invalid_snapshot",
+      "model": "",
+      "source": "local",
+      "output": {},
+      "usage": {}
+    },
+    {
+      "stage_id": "router",
+      "label": "Jev · 研究深度路由",
+      "kind": "model",
+      "dependencies": [
+        "quant",
+        "evidence"
+      ],
+      "started_at": "2026-10-17T14:19:26.988408+00:00",
+      "finished_at": "2026-10-17T14:19:26.988419+00:00",
+      "elapsed_ms": 0.007,
+      "input_refs": [
+        "quant",
+        "evidence"
+      ],
+      "status": "skipped",
+      "reason": "canonical_model_unavailable",
+      "model": "",
+      "source": "local",
+      "output": {},
+      "usage": {}
+    },
+    {
+      "stage_id": "jev",
+      "label": "Jev · 语义风险判断",
+      "kind": "model",
+      "dependencies": [
+        "router",
+        "quant",
+        "evidence"
+      ],
+      "started_at": "2026-10-17T14:19:26.988425+00:00",
+      "finished_at": "2026-10-17T14:19:26.988431+00:00",
+      "elapsed_ms": 0.006,
+      "input_refs": [
+        "router",
+        "quant",
+        "evidence"
+      ],
+      "status": "skipped",
+      "reason": "canonical_model_unavailable",
+      "model": "",
+      "source": "local",
+      "output": {},
+      "usage": {}
+    },
+    {
+      "stage_id": "llm",
+      "label": "Researcher · LLM 证据研究",
+      "kind": "model",
+      "dependencies": [
+        "jev",
+        "evidence",
+        "quant"
+      ],
+      "started_at": "2026-10-17T14:19:26.988433+00:00",
+      "finished_at": "2026-10-17T14:19:26.988438+00:00",
+      "elapsed_ms": 0.005,
+      "input_refs": [
+        "jev",
+        "evidence",
+        "quant"
+      ],
+      "status": "skipped",
+      "reason": "canonical_model_unavailable",
+      "model": "",
+      "source": "local",
+      "output": {},
+      "usage": {}
+    },
+    {
+      "stage_id": "advisor",
+      "label": "Advisor · 交付 / 失败复核",
+      "kind": "model",
+      "dependencies": [
+        "llm",
+        "jev",
+        "quant"
+      ],
+      "started_at": "2026-10-17T14:19:26.988449+00:00",
+      "finished_at": "2026-10-17T14:19:26.988455+00:00",
+      "elapsed_ms": 0.006,
+      "input_refs": [
+        "llm",
+        "jev",
+        "quant"
+      ],
+      "status": "skipped",
+      "reason": "canonical_model_unavailable",
+      "model": "",
+      "source": "local",
+      "output": {},
+      "usage": {}
+    },
+    {
+      "stage_id": "risk",
+      "label": "确定性边界 / 风险检查",
+      "kind": "deterministic",
+      "dependencies": [
+        "snapshot",
+        "quant",
+        "advisor"
+      ],
+      "started_at": "2026-10-17T14:19:26.988460+00:00",
+      "finished_at": "2026-10-17T14:19:26.988475+00:00",
+      "elapsed_ms": 0.014,
+      "input_refs": [
+        "snapshot",
+        "quant",
+        "advisor"
+      ],
+      "status": "blocked",
+      "reason": "",
+      "model": "",
+      "source": "local",
+      "output": {
+        "blocked_reasons": [
+          "canonical_model_unavailable",
+          "stale_market_snapshot",
+          "unverified_factor_provenance"
+        ],
+        "execution_authorized": false,
+        "baseline_unchanged": true,
+        "limits": [
+          "no_reversal",
+          "no_weight_increase",
+          "no_order_api"
+        ]
+      },
+      "usage": {}
+    },
+    {
+      "stage_id": "arbitration",
+      "label": "保守仲裁 · 影子研究结论",
+      "kind": "deterministic",
+      "dependencies": [
+        "risk",
+        "jev",
+        "llm",
+        "advisor"
+      ],
+      "started_at": "2026-10-17T14:19:26.988476+00:00",
+      "finished_at": "2026-10-17T14:19:26.988502+00:00",
+      "elapsed_ms": 0.025,
+      "input_refs": [
+        "risk",
+        "jev",
+        "llm",
+        "advisor"
+      ],
+      "status": "ok",
+      "reason": "",
+      "model": "",
+      "source": "local",
+      "output": {
+        "status": "blocked",
+        "recommendation": "abstain",
+        "proposed_direction": 0,
+        "proposed_weight": 0.0,
+        "execution_authorized": false,
+        "baseline_unchanged": true,
+        "blocked_reasons": [
+          "canonical_model_unavailable",
+          "stale_market_snapshot",
+          "unverified_factor_provenance"
+        ],
+        "conflicts": [],
+        "reasons": [
+          "jev: skipped (canonical_model_unavailable)",
+          "llm: skipped (canonical_model_unavailable)",
+          "advisor: skipped (canonical_model_unavailable)",
+          "no_contemporaneous_evidence"
+        ],
+        "arbitration_rule": "most_conservative_valid_opinion_v1; reduce=0.5; no reversal or increase",
+        "disclaimer": "研究建议非订单；各模型置信度不等于收益概率，未进行概率加权。"
+      },
+      "usage": {}
+    }
+  ],
+  "budget": {
+    "call_limit": 4,
+    "attempted_calls": 0
+  }
+}

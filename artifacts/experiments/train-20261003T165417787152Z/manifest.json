@@ -1,0 +1,43 @@
+{
+  "artifacts": {
+    "evaluation": {
+      "path": "evaluation.json",
+      "sha256": "a7fdae1d582ac903934562696488b8553e09bc72f324eea12f31986d7db8f712",
+      "size_bytes": 9968
+    },
+    "feature_importance": {
+      "path": "feature_importance.csv",
+      "sha256": "4a9aff0cd7ed4fdf9fea9ddfd9f72a36d81a348bf60d12f4756bd997b02380f0",
+      "size_bytes": 1955
+    },
+    "model": {
+      "path": "trained_model.pkl",
+      "sha256": "8027c611b3e57ecc0ef86c31d72fef46f98c4ff85c6c6ff22a489a9a02895e5e",
+      "size_bytes": 193843
+    },
+    "predictions": {
+      "path": "df_predictions.pkl",
+      "sha256": "0997d7c516608e24d9da9bd640190bd626c64e4506f1f1c339ba0ce94a4f5887",
+      "size_bytes": 2217670
+    },
+    "training_input": {
+      "path": "input_snapshot.pkl",
+      "sha256": "a6ab30ecc906b55c3fb9ef33c801f707a313458970b7b66ed6f59584d6cd5333",
+      "size_bytes": 82502711
+    }
+  },
+  "created_at": "2026-10-03T16:54:19.180659+00:00",
+  "manifest_type": "candidate",
+  "metadata": {
+    "factor_provenance_verified": true,
+    "input_sha256": "a6ab30ecc906b55c3fb9ef33c801f707a313458970b7b66ed6f59584d6cd5333",
+    "release_gate_passed": false,
+    "strategy_fingerprint": "sha256:575e927fcf573a47a7b3f95281e09e566b7d1d76770973938fdaa9a98a9f71aa",
+    "strategy_gate_reason": "total_return_below_threshold",
+    "strategy_id": "tl_regime_breakout_v1",
+    "strategy_version": 1
+  },
+  "release_id": "tl-20261003T165417787152Z-575e927fcf57",
+  "run_id": "train-20261003T165417787152Z",
+  "schema_version": 1
+}
