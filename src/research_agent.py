@@ -60,6 +60,19 @@ class ResearchAgent:
         self.memory_factory = memory_factory
         self.api_key = api_key
 
+    def run_hybrid_cycle(self, **kwargs):
+        """Run the bounded workbench workflow without changing the legacy API.
+
+        No factor rebuild, memory feedback, notifications, or order execution
+        occurs here. Online model calls require an explicit HybridConfig mode.
+        """
+        from hybrid_runtime import run_hybrid_research
+
+        return run_hybrid_research(
+            self.base_dir, runtime=self.runtime, policy=self.policy,
+            api_key=self.api_key, **kwargs,
+        )
+
     def run_cycle(
         self,
         rebuild_factors=True,
@@ -88,7 +101,7 @@ class ResearchAgent:
         }
 
         if monitor_sentiment and (persist or self.monitor is not None):
-            self._run_sentiment_monitor(report)
+            self._run_sentiment_monitor(report, use_llm=use_llm)
         elif monitor_sentiment:
             report["step_status"]["sentiment_monitor"] = (
                 "skipped:persist=False-no-injected-monitor"
@@ -214,14 +227,20 @@ class ResearchAgent:
         self._finish(report, persist=persist)
         return report
 
-    def _run_sentiment_monitor(self, report):
+    def _run_sentiment_monitor(self, report, *, use_llm=True):
         try:
             if self.monitor is None:
                 from jev_client import JevClient
+                from dataclasses import replace
+                from bond_monitor_config import MonitorConfig
                 from sentiment_monitor import SentimentMonitor
 
+                config = MonitorConfig.load(self.base_dir)
+                if not use_llm:
+                    config = replace(config, semantic_mode="off")
                 self.monitor = SentimentMonitor(
-                    self.base_dir, jev_adapter=JevClient(self.base_dir)
+                    self.base_dir, config=config,
+                    jev_adapter=JevClient(self.base_dir) if use_llm else None,
                 )
             run = self.monitor.run_once()
             store = self.monitor.store
@@ -239,6 +258,9 @@ class ResearchAgent:
                 "recent_assessments": [
                     _jsonable(item) for item in assessments
                 ],
+                "evidence_records": [{key: value for key, value in item.items() if key != "content"}
+                                     for item in store.recent_event_records(limit=20)],
+                "notification_counts": dict(self.monitor.delivery_counts),
             }
             status = str(getattr(run, "status", "failed"))
             prefix = {

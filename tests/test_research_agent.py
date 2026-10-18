@@ -24,10 +24,12 @@ class _Monitor:
         self.fail = fail
         self.status = status
         self.error = error
+        self.delivery_counts = {}
         self.store = SimpleNamespace(
             list_alerts=lambda: [],
             list_source_health=lambda: [],
             list_assessments=lambda: [],
+            recent_event_records=lambda **_kwargs: [],
         )
 
     def run_once(self):

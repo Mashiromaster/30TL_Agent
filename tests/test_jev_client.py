@@ -271,15 +271,21 @@ def test_builtin_http_transport_sends_bearer_json(tmp_path, monkeypatch):
         def __exit__(self, *args):
             return False
 
-        def read(self):
+        def read(self, limit):
+            captured["read_limit"] = limit
             return json.dumps(_document_response()).encode("utf-8")
 
-    def fake_urlopen(request, timeout):
-        captured["request"] = request
-        captured["timeout"] = timeout
-        return _Response()
+    class _Opener:
+        def open(self, request, timeout):
+            captured["request"] = request
+            captured["timeout"] = timeout
+            return _Response()
 
-    monkeypatch.setattr("jev_client.urlopen", fake_urlopen)
+    def fake_build_opener(handler):
+        captured["redirect_handler"] = handler
+        return _Opener()
+
+    monkeypatch.setattr("jev_client.build_opener", fake_build_opener)
     client = JevClient(
         base_dir=tmp_path,
         config=JevConfig(enabled=True),
@@ -294,5 +300,40 @@ def test_builtin_http_transport_sends_bearer_json(tmp_path, monkeypatch):
 
     assert response["model"] == DEFAULT_JEV_MODEL
     assert captured["timeout"] == 12.0
+    assert captured["read_limit"] == 128001
+    assert captured["redirect_handler"].redirect_request(
+        None, None, 302, "", {}, "https://unapproved.example"
+    ) is None
     assert captured["request"].get_header("Authorization") == "Bearer secret-test-key"
     assert captured["request"].get_header("Content-type") == "application/json"
+
+
+@pytest.mark.parametrize("field", ["confidence", "noul", "probability", "score", "score_confidence", "score_probability"])
+@pytest.mark.parametrize("invalid", [True, False, "0.7"])
+def test_real_jev_response_rejects_coercible_non_numeric_values(tmp_path, field, invalid):
+    response = _document_response() if field.startswith("score") else _gate_response()
+    answers = response["answers"]
+    if field == "confidence":
+        answers["action"]["confidence"] = invalid
+    elif field == "noul":
+        answers["evidence_sufficient"]["noul"] = invalid
+    elif field == "probability":
+        answers["action"]["probabilities"] = {
+            "maintain": invalid, "reduce": 1 - float(invalid), "abstain": 0.0,
+        }
+    elif field == "score":
+        answers["impact_strength"]["score"] = invalid
+    elif field == "score_confidence":
+        answers["impact_strength"]["confidence"] = invalid
+    else:
+        answers["impact_strength"]["probabilities"] = {
+            "0": invalid, "1": 1 - float(invalid), "2": 0.0, "3": 0.0, "4": 0.0,
+        }
+    client = JevClient(
+        tmp_path, config=JevConfig(enabled=True), api_key="test-key",
+        transport=lambda *_: response,
+    )
+    result = client.analyze_document("央行公告") if field.startswith("score") else client.assess_signal_gate({"existing_signal": "long"})
+    assert result is None
+    assert "numeric" in client.last_error
+    assert not list(client.cache_dir.glob("*.json"))
